@@ -1,0 +1,27 @@
+pkgbase = allumeur
+	pkgdesc = Ultra-light homelab control suite: wake/sleep machines, SSH key management, on-demand tunnels, and a tiny Rust web UI on :443
+	pkgver = 1.0.0
+	pkgrel = 1
+	url = https://github.com/Mars-Wave/allumeur
+	install = allumeur.install
+	arch = x86_64
+	license = custom:PolyForm-Noncommercial-1.0.0
+	depends = openssl
+	depends = openssh
+	depends = sshpass
+	depends = wakeonlan
+	depends = curl
+	depends = jq
+	depends = iputils
+	depends = ncurses
+	depends = util-linux
+	depends = gawk
+	depends = sed
+	depends = git
+	depends = sudo
+	options = !strip
+	options = !debug
+	source = allumeur-1.0.0.tar.gz::https://github.com/Mars-Wave/allumeur/releases/download/v1.0.0/allumeur-x86_64-linux.tar.gz
+	sha256sums = SKIP
+
+pkgname = allumeur

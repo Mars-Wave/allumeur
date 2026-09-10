@@ -1,0 +1,65 @@
+# ─────────────────────────────────────────────────────────────────────────────
+# CRYPTOGRAPHED STORAGE & SECRETS - never commit. Defense in depth: these paths
+# are excluded from the git project by design; deploy keeps them REAL & in place.
+# ─────────────────────────────────────────────────────────────────────────────
+**/encrypted/
+*.enc
+*.enc.*
+*.pre-luks
+.root_key
+**/*master-key*
+# TLS material and any private keys / certs
+**/certs/
+*.pem
+*.key
+*.crt
+*.p12
+*.pfx
+# generic secret files
+.env
+.env.*
+*secret*
+*.secret
+
+# ─────────────────────────────────────────────────────────────────────────────
+# Build artifacts (Rust) - the service runs target/release/allumeur-backend, but
+# the build output is never tracked; deploy keeps a real, writable target/.
+# ─────────────────────────────────────────────────────────────────────────────
+**/target/
+/backend/target/
+
+# Packaging output (built .deb / tarball) and the Nix build symlink.
+/dist/
+/result
+/result-*
+
+# ─────────────────────────────────────────────────────────────────────────────
+# Vendored / fetched binaries - cloudflared (~39MB) is downloaded by deploy,
+# never committed.
+# ─────────────────────────────────────────────────────────────────────────────
+scripts/binaries/
+**/cloudflared
+
+# ─────────────────────────────────────────────────────────────────────────────
+# Runtime state
+# ─────────────────────────────────────────────────────────────────────────────
+allumeur_tunnels/
+*.bak
+*.log
+
+# ─────────────────────────────────────────────────────────────────────────────
+# Analysis scratch (kept out of the repo)
+# ─────────────────────────────────────────────────────────────────────────────
+.analysis/
+
+# OS / editor
+.DS_Store
+*~
+*.swp
+.idea/
+.vscode/
+# live-deployment doc with real topology - excluded
+scripts/handover.md
+
+# stray test capture
+local_err

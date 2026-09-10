@@ -1,0 +1,14 @@
+# pacman install scaffolding: drive the shared setup/teardown used by every package.
+
+post_install() {
+    ALLUMEUR_PREFIX=/usr/lib/allumeur bash /usr/lib/allumeur/packaging/common/pkg-setup.sh
+}
+
+post_upgrade() {
+    post_install
+}
+
+pre_remove() {
+    ALLUMEUR_OPT=/opt/allumeur ALLUMEUR_CLI_DIR=/root/.allumeur-scripts \
+        bash /usr/lib/allumeur/packaging/common/pkg-teardown.sh || true
+}

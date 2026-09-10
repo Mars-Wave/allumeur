@@ -1,0 +1,37 @@
+# Maintainer: Mars-Wave <noreply@users.noreply.github.com>
+#
+# Allumeur ships a prebuilt static musl backend binary in its GitHub release, so
+# this package installs that binary plus the portable shell suite - no Rust
+# toolchain is needed to build it. The one-time on-host setup (systemd service,
+# self-signed cert, empty data store, shell integration) runs from the shared
+# packaging/common/pkg-setup.sh via the .install hooks.
+#
+# NOTE: 'wakeonlan' is an AUR dependency; build with an AUR helper (e.g. paru/yay)
+# or install it first, then makepkg.
+pkgname=allumeur
+pkgver=1.0.0
+pkgrel=1
+pkgdesc="Ultra-light homelab control suite: wake/sleep machines, SSH key management, on-demand tunnels, and a tiny Rust web UI on :443"
+arch=('x86_64')
+url="https://github.com/Mars-Wave/allumeur"
+license=('custom:PolyForm-Noncommercial-1.0.0')
+depends=('openssl' 'openssh' 'sshpass' 'wakeonlan' 'curl' 'jq' 'iputils' 'ncurses' 'util-linux' 'gawk' 'sed' 'git' 'sudo')
+install="$pkgname.install"
+options=('!strip' '!debug')  # ships a prebuilt, already-stripped binary; no debug package
+source=("$pkgname-$pkgver.tar.gz::$url/releases/download/v$pkgver/allumeur-x86_64-linux.tar.gz")
+sha256sums=('SKIP')  # release publishing substitutes the real checksum
+
+package() {
+    install -dm755 "$pkgdir/usr/lib/allumeur"
+    cp -a "$srcdir/allumeur/." "$pkgdir/usr/lib/allumeur/"
+
+    # Normalise permissions (no group/other-writable bits).
+    find "$pkgdir/usr/lib/allumeur" -type d -exec chmod 0755 {} +
+    find "$pkgdir/usr/lib/allumeur" -type f -exec chmod 0644 {} +
+    find "$pkgdir/usr/lib/allumeur" -type f -name '*.sh' -exec chmod 0755 {} +
+    chmod 0755 "$pkgdir/usr/lib/allumeur/install.sh" \
+               "$pkgdir/usr/lib/allumeur/backend/target/release/allumeur-backend"
+
+    install -Dm644 "$srcdir/allumeur/LICENSE.md" \
+        "$pkgdir/usr/share/licenses/$pkgname/LICENSE.md"
+}

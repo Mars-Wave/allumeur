@@ -1,0 +1,14 @@
+[Unit]
+Description=Allumeur Rust Backend
+After=network.target
+
+[Service]
+Type=simple
+User=root
+WorkingDirectory=/opt/allumeur
+ExecStart=/opt/allumeur/backend/target/release/allumeur-backend
+Restart=always
+LimitNOFILE=10000
+
+[Install]
+WantedBy=multi-user.target

@@ -1,0 +1,147 @@
+name: release
+
+# Publishes a release when a version tag is pushed (e.g. v1.0.0). Builds the
+# static musl backend once, assembles the portable tarball and the .deb, and
+# (re)creates the GitHub Release with both attached plus install instructions.
+# The AUR job publishes only when an AUR deploy key is configured as a secret.
+# Nix users need no publish step - they consume the flake straight from the repo.
+
+on:
+  push:
+    tags:
+      - 'v*'
+  workflow_dispatch:
+    inputs:
+      version:
+        description: 'Version to build (without the leading v)'
+        required: true
+        default: '1.0.0'
+
+permissions:
+  contents: write
+
+jobs:
+  release:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Resolve version
+        run: |
+          if [ "${{ github.event_name }}" = "workflow_dispatch" ]; then
+            V="${{ github.event.inputs.version }}"
+          else
+            V="${GITHUB_REF_NAME#v}"
+          fi
+          echo "VERSION=$V" >> "$GITHUB_ENV"
+          echo "building version: $V"
+
+      - name: Cross-build the static musl backend
+        run: |
+          docker run --rm -v "$PWD/backend":/src -w /src \
+            messense/rust-musl-cross:x86_64-musl \
+            cargo build --release
+          sudo chown -R "$USER" backend/target
+          BIN=backend/target/x86_64-unknown-linux-musl/release/allumeur-backend
+          echo "BIN=$BIN" >> "$GITHUB_ENV"
+          if ldd "$BIN" 2>&1 | grep -qiE 'statically linked|not a dynamic executable'; then
+            echo "confirmed static binary"
+          else
+            echo "binary is not static"; exit 1
+          fi
+
+      - name: Assemble the release tarball
+        run: bash packaging/make-tarball.sh --binary="$BIN"
+
+      - name: Build the .deb
+        run: QUIET=1 bash packaging/deb/build-deb.sh --version="$VERSION" --binary="$BIN"
+
+      - name: Checksums
+        run: |
+          cd dist
+          sha256sum allumeur-x86_64-linux.tar.gz "allumeur_${VERSION}_amd64.deb" | tee SHA256SUMS
+          TAR_SHA=$(sha256sum allumeur-x86_64-linux.tar.gz | cut -d' ' -f1)
+          echo "TAR_SHA=$TAR_SHA" >> "$GITHUB_ENV"
+
+      - name: Release notes
+        run: |
+          cat > notes.md <<EOF
+          ## Install
+
+          One line (Debian / Ubuntu; elevates with sudo as needed):
+
+          \`\`\`sh
+          curl -fsSL https://raw.githubusercontent.com/${{ github.repository }}/main/packaging/get.sh | sh
+          \`\`\`
+
+          Or grab the \`.deb\`:
+
+          \`\`\`sh
+          curl -fLO https://github.com/${{ github.repository }}/releases/download/v${VERSION}/allumeur_${VERSION}_amd64.deb
+          sudo apt install ./allumeur_${VERSION}_amd64.deb
+          \`\`\`
+
+          NixOS: \`nix run github:${{ github.repository }}\` or import \`nixosModules.default\` (set \`nixpkgs.config.allowUnfree = true\`).
+
+          The backend serves HTTPS on :443 and its API is UNAUTHENTICATED - keep the host LAN/tailnet only.
+
+          tarball sha256: \`${TAR_SHA}\`
+          EOF
+
+      - name: Publish GitHub Release
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          ASSETS=(dist/allumeur-x86_64-linux.tar.gz "dist/allumeur_${VERSION}_amd64.deb" dist/SHA256SUMS)
+          if gh release view "v${VERSION}" >/dev/null 2>&1; then
+            gh release upload "v${VERSION}" "${ASSETS[@]}" --clobber
+            gh release edit "v${VERSION}" --title "Allumeur v${VERSION}" --notes-file notes.md
+          else
+            gh release create "v${VERSION}" "${ASSETS[@]}" --title "Allumeur v${VERSION}" --notes-file notes.md
+          fi
+
+  aur:
+    needs: release
+    runs-on: ubuntu-latest
+    env:
+      AUR_SSH_KEY: ${{ secrets.AUR_SSH_KEY }}
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Resolve version
+        if: ${{ env.AUR_SSH_KEY != '' }}
+        run: |
+          if [ "${{ github.event_name }}" = "workflow_dispatch" ]; then
+            echo "VERSION=${{ github.event.inputs.version }}" >> "$GITHUB_ENV"
+          else
+            echo "VERSION=${GITHUB_REF_NAME#v}" >> "$GITHUB_ENV"
+          fi
+
+      - name: Update PKGBUILD (pkgver + checksum) and regenerate .SRCINFO
+        if: ${{ env.AUR_SSH_KEY != '' }}
+        run: |
+          URL="https://github.com/${{ github.repository }}/releases/download/v${VERSION}/allumeur-x86_64-linux.tar.gz"
+          curl -fLO "$URL"
+          SHA=$(sha256sum allumeur-x86_64-linux.tar.gz | cut -d' ' -f1)
+          cd packaging/aur
+          sed -i "s/^pkgver=.*/pkgver=${VERSION}/" PKGBUILD
+          sed -i "s/^sha256sums=.*/sha256sums=('${SHA}')/" PKGBUILD
+          # Regenerate .SRCINFO in an Arch container so it matches exactly.
+          docker run --rm -v "$PWD":/work -w /work archlinux:latest \
+            bash -c 'pacman -Sy --noconfirm --needed fakeroot >/dev/null 2>&1; useradd -m b; cp -r /work /home/b/p; chown -R b /home/b/p; su b -c "cd /home/b/p && makepkg --printsrcinfo" > .SRCINFO'
+
+      - name: Push to the AUR
+        if: ${{ env.AUR_SSH_KEY != '' }}
+        run: |
+          mkdir -p ~/.ssh
+          echo "$AUR_SSH_KEY" > ~/.ssh/aur && chmod 600 ~/.ssh/aur
+          ssh-keyscan aur.archlinux.org >> ~/.ssh/known_hosts 2>/dev/null || true
+          export GIT_SSH_COMMAND="ssh -i ~/.ssh/aur -o IdentitiesOnly=yes"
+          git config --global user.name "Mars-Wave"
+          git config --global user.email "noreply@users.noreply.github.com"
+          git clone ssh://aur@aur.archlinux.org/allumeur.git aur-repo
+          cp packaging/aur/PKGBUILD packaging/aur/allumeur.install packaging/aur/.SRCINFO aur-repo/
+          cd aur-repo
+          git add -A
+          git commit -m "allumeur ${VERSION}" || { echo "nothing to commit"; exit 0; }
+          git push

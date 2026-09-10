@@ -1,0 +1,1870 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>allumeur</title>
+    <style>
+        /* Atkinson Hyperlegible Next, self-hosted (SIL OFL) - served from public/fonts by the backend's ServeDir.
+           No external egress: this box stays LAN/tailnet-only. Variable font, weight axis 200-800. */
+        @font-face {
+            font-family: 'Atkinson Hyperlegible Next';
+            font-style: normal;
+            font-weight: 200 800;
+            font-display: swap;
+            src: url('/fonts/atkinson-next-latin.woff2') format('woff2');
+            unicode-range: U+0000-00FF, U+0131, U+0152-0153, U+02BB-02BC, U+02C6, U+02DA, U+02DC, U+0304, U+0308, U+0329, U+2000-206F, U+20AC, U+2122, U+2191, U+2193, U+2212, U+2215, U+FEFF, U+FFFD;
+        }
+        @font-face {
+            font-family: 'Atkinson Hyperlegible Next';
+            font-style: normal;
+            font-weight: 200 800;
+            font-display: swap;
+            src: url('/fonts/atkinson-next-latin-ext.woff2') format('woff2');
+            unicode-range: U+0100-02BA, U+02BD-02C5, U+02C7-02CC, U+02CE-02D7, U+02DD-02FF, U+0304, U+0308, U+0329, U+1D00-1DBF, U+1E00-1E9F, U+1EF2-1EFF, U+2020, U+20A0-20AB, U+20AD-20C0, U+2113, U+2C60-2C7F, U+A720-A7FF;
+        }
+        :root {
+            --bg: #fff5f8; --card: #ffffff; --pink-light: #fce4ec; --pink-main: #f48fb1; --pink-dark: #d81b60;
+            --text-dark: #5c4b51; --text-muted: #7f6b71;
+            /* Status family, kept deliberately pastel: tea green for up/online, cherry
+               blossom for down/offline. LEDs may whisper; the inks still carry text, so
+               each ink holds ≥4.5:1 on its own tint (verified) at ~half the old saturation. */
+            --success: #c5e2cf; --danger: #f2c7cd; --danger-deep: #a85570;
+            --line: #ffd9e7; --line-soft: #ffeaf2;
+            --up-ink: #3d7359; --up-tint: #e9f3ee; --down-ink: #8f5b6e; --down-tint: #f6eaef; --down-dot: #e8c4cd;
+            --wait-ink: #71616a; --wait-tint: #efeaee;
+            /* Lamplight family: the warm pastel yellow the lamp mark brings to the palette.
+               The "waking" state already leaned warm, so it now draws from the same well. */
+            --glow-soft: #fdf4dc; --glow: #f9e5b5; --glow-deep: #f2cf9f; --glow-ink: #96652f;
+            --wake-ink: var(--glow-ink); --wake-tint: var(--glow-soft); --wake-dot: var(--glow-deep);
+            /* type scale (--fs-title, --fs-brand and --fs-card are reserved upper steps,
+               unused today: every card speaks at --fs-tab with --fs-meta paperwork) */
+            --fs-title: 2.058rem; --fs-brand: 1.618rem; --fs-card: 1.272rem; --fs-tab: 1rem; --fs-meta: 0.786rem;
+            /* weight steps */
+            --w-title: 800; --w-strong: 700; --w-mid: 600; --w-body: 500; --w-soft: 400;
+            /* spacing scale */
+            --sp-1: 0.5rem; --sp-2: 0.809rem; --sp-3: 1.309rem; --sp-4: 2.118rem; --sp-5: 3.427rem;
+            --ease: cubic-bezier(.22,.61,.36,1);
+            /* Dusk-aware ambience (JS rewrites these from the viewer's local hour, once a
+               minute; these are the full-day defaults). Airy by day, warm-dim by night. */
+            --amb-top: #ffe1ec; --amb-corner1: rgba(179,229,252,.30); --amb-corner2: rgba(200,230,201,.28);
+            --halo-core: rgba(251,233,184,.55); --halo-mid: rgba(249,229,181,.30); --halo-a: .62;
+            /* Lamp-cast wash: a sandy wash pooling out of the top-left lamp corner and
+               thinning across the page. It rides the same dusk cosine as everything
+               above - barely-there at noon, fuller by night - via the same 60s rewrite. */
+            --wash-core: rgba(249,229,181,.15); --wash-mid: rgba(249,229,181,.06);
+        }
+        * { box-sizing: border-box; }
+        /* Clip on html as well: body's clip degrades to hidden at the viewport edge
+           (quietly minting a scroll container), so the halo's transparent spill could
+           still open a 1px programmatic pan on SE-class screens. html's clip caps the
+           scrollable-overflow area at the viewport itself. */
+        html { overflow-x: clip; scrollbar-gutter: stable both-edges; }
+        body {
+            background-color: var(--bg);
+            background-image:
+                radial-gradient(1100px 460px at 50% -120px, var(--amb-top) 0%, transparent 72%),
+                radial-gradient(1150px 760px at 9% -70px, var(--wash-core) 0%, var(--wash-mid) 40%, transparent 72%),
+                radial-gradient(720px 420px at 8% 108%, var(--amb-corner1), transparent 70%),
+                radial-gradient(680px 400px at 94% 104%, var(--amb-corner2), transparent 70%);
+            background-attachment: fixed;
+            min-height: 100vh;
+            /* clip (not hidden: no scroll container) so the oversized decorative
+               halo can never widen the page on SE-class viewports */
+            overflow-x: clip;
+            color: var(--text-dark); font-family: 'Atkinson Hyperlegible Next', sans-serif; font-weight: var(--w-soft);
+            line-height: 1.5; margin: 0; padding: var(--sp-4); -webkit-font-smoothing: antialiased;
+        }
+        /* The content column: one quarter-φ step wider than the classic 960
+           (960 × φ^¼ ≈ 1082.7 → 1083px) so desk-width node cards can hug their
+           names with air to spare. Masthead, tally line and both tabs share this
+           one column; the services shelf keeps computing its unit off the
+           container, so it stays flush at the new width. Narrow screens never
+           see the difference - the viewport caps the column first. */
+        .container { max-width: 1083px; margin: 0 auto; position: relative; z-index: 1; }
+        /* ── Candle glow: a warm halo breathing out from behind the lamp mark. It lives in
+           the container's stacking context (absolute, z-index:-1), so it scrolls with the
+           document for free - zero scroll JS - and the frosted bar and cards paint over it,
+           which keeps every control readable. The breath animates opacity/scale only
+           (composited), on a slow, slightly uneven candle rhythm - never a strobe. */
+        .candle-glow {
+            position: absolute; top: -245px; left: -237px; width: 560px; height: 560px;
+            border-radius: 50%; pointer-events: none; z-index: -1;
+            background: radial-gradient(closest-side, var(--halo-core) 0%, var(--halo-mid) 40%, rgba(249,229,181,0) 72%);
+            opacity: var(--halo-a);
+            animation: candleBreathe 6.4s ease-in-out infinite;
+            will-change: transform, opacity;
+        }
+        @keyframes candleBreathe {
+            0%, 100% { opacity: var(--halo-a); transform: scale(1); }
+            34% { opacity: calc(var(--halo-a) * .78); transform: scale(.968); }
+            58% { opacity: calc(var(--halo-a) * .94); transform: scale(1.022); }
+            76% { opacity: calc(var(--halo-a) * .84); transform: scale(.99); }
+        }
+        button:focus-visible, a:focus-visible { outline: 2px solid var(--pink-dark); outline-offset: 2px; border-radius: 8px; }
+        .switch input:focus-visible + .slider { outline: 2px solid var(--pink-dark); outline-offset: 2px; }
+
+        /* ── Masthead: one frosted bar, two players ───────────────────────────
+           The mark stands top-left, lifted out of the flow so the control rows
+           own the card's full width: the tab combo and, directly below it, the
+           view pill both center on the CARD's own axis - the page's axis - at
+           every width, with the freshness pair seated at the pill row's far
+           right. The mark floats in the left rail, capped so it always clears
+           the centered combo. The stats live OUTSIDE the bar: the active tab's
+           tally stands centered on its own line just below, above the cards. */
+        .masthead {
+            position: relative; display: flex; align-items: stretch;
+            background: rgba(255,255,255,.58); backdrop-filter: blur(9px); -webkit-backdrop-filter: blur(9px);
+            border: 1px solid rgba(255,214,231,.9); border-radius: 22px;
+            padding: var(--sp-2) var(--sp-3); margin-bottom: var(--sp-2);
+            /* Nearest neighbour to the lamp: a tight, warm-leaning shade falling down-right. */
+            box-shadow: 0 1px 2px rgba(216,27,96,.04), 3px 13px 30px -20px rgba(236,164,138,.6);
+        }
+        /* The brand box floats over the card's left rail, vertically centered on
+           the control block and square by construction: its side is the block's
+           own height (86px - the two rows plus their gap) until half the card
+           minus the combo's half-width would collide, and then the side takes
+           that cap instead - the square simply breathes down a size and the
+           centered combo is never touched. (The cap bakes in the combo
+           half-width + card padding + an 8px cushion; the SE band keeps the
+           SAME cap - its narrower combo would clear a looser one, but taking
+           it made the square GROW across 375→374, so the cushion simply
+           widens there and the square only ever shrinks.) */
+        .brand { position: absolute; left: var(--sp-3); top: 50%; transform: translateY(-50%); width: min(86px, calc(50% - 96px)); aspect-ratio: 1; display: flex; align-items: stretch; }
+        /* The lit lamp is the whole identity now - the name lives in <title> and this hidden h1. */
+        .sr-only { position: absolute; width: 1px; height: 1px; padding: 0; margin: -1px; overflow: hidden; clip: rect(0 0 0 0); white-space: nowrap; border: 0; }
+        /* The mark is secretly a button (the allumeur-mode toggle) but must never look
+           like one: no cursor change, no hover state, no visible affordance. Keyboard
+           users still get the standard focus ring; everyone else just sees the lamp. */
+        .brand-mark {
+            flex: 1; min-width: 0; align-self: stretch;
+            border-radius: 18px; position: relative; z-index: 0;
+            border: none; padding: 0; font: inherit; cursor: default;
+            -webkit-tap-highlight-color: transparent; touch-action: manipulation;
+            background: linear-gradient(155deg, #fff6e1 0%, #ffe3ee 42%, #f6a3c3 100%);
+            display: flex; align-items: center; justify-content: center;
+            box-shadow: inset 0 0 0 1px rgba(255,255,255,.65), 0 7px 16px -7px rgba(244,143,177,.7), 0 0 20px rgba(249,229,181,.75);
+        }
+        .brand-mark svg { width: 60%; height: 60%; }
+        .brand-mark:focus-visible { border-radius: 18px; }
+        /* The control block spans the whole card (the mark floats over its left
+           rail), so "centered" here IS the card's center. Row 1 is the tab combo;
+           row 2 seats the view pill on the same axis and pins freshness to the
+           row's far right - minmax(0,1fr) rails stay equal no matter what the
+           freshness pair weighs, so the pill can never be shouldered off axis. */
+        .ctrl { flex: 1; min-width: 0; display: flex; flex-direction: column; justify-content: center; gap: var(--sp-1); }
+        .ctrl-tabs { display: flex; justify-content: center; }
+        .ctrl-tools { display: grid; grid-template-columns: minmax(0,1fr) auto minmax(0,1fr); align-items: center; }
+        .ctrl-tools .viewmode { grid-column: 2; }
+        .ctrl-tools .fresh { grid-column: 3; justify-self: end; }
+        .fresh { display: flex; align-items: center; gap: var(--sp-1); color: var(--text-muted); font-size: var(--fs-meta); font-weight: var(--w-body); }
+        #updated { font-variant-numeric: tabular-nums; letter-spacing: .02em; min-width: 4.6em; text-align: right; cursor: default; white-space: nowrap; }
+        /* A failed poll: the label owns up in a deeper pink instead of ticking on as if fine. */
+        #updated.stale { color: var(--danger-deep); font-weight: var(--w-mid); }
+        /* …and the tally counts dim rather than assert numbers we can no longer vouch for. */
+        .tally.stale .cnt, .tally.stale .sep { opacity: .4; }
+        .refresh-btn {
+            background: var(--card); border: 1px solid var(--line); color: var(--pink-dark);
+            width: 1.95rem; height: 1.95rem; border-radius: 50%; cursor: pointer; font-family: inherit; line-height: 1;
+            display: inline-flex; align-items: center; justify-content: center; padding: 0;
+            transition: transform .2s var(--ease), background .2s var(--ease), box-shadow .2s var(--ease);
+            box-shadow: 0 3px 8px rgba(244,143,177,.16);
+        }
+        .refresh-btn:hover { transform: translateY(-1px); background: var(--pink-light); box-shadow: 0 5px 12px rgba(244,143,177,.26); }
+        .refresh-btn:active { transform: translateY(0); }
+        .refresh-btn.spinning { animation: spin .7s var(--ease); }
+        @keyframes spin { from { transform: rotate(0); } to { transform: rotate(360deg); } }
+
+        /* ── Pastel-dot loader: three drifting particles instead of glyphs ───── */
+        .loading { grid-column: 1 / -1; text-align: center; width: 100%; color: var(--pink-main); font-weight: var(--w-body); animation: cardIn .35s var(--ease) both; padding: var(--sp-3); }
+        .loading.err { color: var(--pink-dark); }
+        /* On the nodes tab these states would float bare on the wallpaper, so give them the
+           same soft rounded card the services list wraps its own loader/error in. */
+        .loading.carded { background: var(--card); border: 1px solid var(--line); border-radius: 22px; box-shadow: 0 1px 2px rgba(216,27,96,.04), var(--cast, 0 12px 30px -16px rgba(244,143,177,.5)); }
+        .ldots { display: inline-flex; gap: 5px; margin-right: 10px; vertical-align: middle; }
+        .ldots i { width: 7px; height: 7px; border-radius: 50%; background: var(--pink-main); animation: bob 1s ease-in-out infinite; }
+        .ldots i:nth-child(2) { animation-delay: .15s; background: #b3e5fc; }
+        .ldots i:nth-child(3) { animation-delay: .3s; background: #c5e2cf; }
+        @keyframes bob { 0%,100% { transform: translateY(0); opacity: .5; } 50% { transform: translateY(-5px); opacity: 1; } }
+
+        /* ── The tally line: the active tab's on/off pair on its own centered row
+           between the masthead and the cards - a reading over the page it counts,
+           never crowding the controls. Same live counts, beats and stale-dimming. */
+        .tallybar { display: flex; justify-content: center; margin-bottom: var(--sp-2); }
+        /* Segmented tab control with a sliding thumb. The tabs are pure identity
+           icons - lantern-post for machines, roadside lamp for services - no
+           numbers on a button. */
+        .seg {
+            position: relative; display: grid; grid-template-columns: 1fr 1fr;
+            background: var(--card); border: 1px solid var(--line); border-radius: 999px; padding: 5px;
+            box-shadow: 0 4px 12px rgba(244,143,177,.14);
+        }
+        .seg-thumb {
+            position: absolute; top: 5px; left: 5px; width: calc(50% - 5px); height: calc(100% - 10px);
+            border-radius: 999px; background: linear-gradient(135deg, #f7a6c4, #ef7fa9);
+            box-shadow: 0 4px 10px rgba(244,143,177,.45);
+            transition: transform .3s var(--ease);
+        }
+        .seg.svc .seg-thumb { transform: translateX(100%); }
+        .seg-btn {
+            position: relative; z-index: 1; background: transparent; border: none; cursor: pointer;
+            font-family: inherit; color: #c2607f;
+            padding: var(--sp-1) var(--sp-3); border-radius: 999px;
+            display: inline-flex; align-items: center; justify-content: center;
+            transition: color .3s var(--ease);
+        }
+        .seg-btn.active { color: #fff; }
+        /* The tally: the on-stage tab's own off·on readout - glyph + bare tabular
+           numeral. No pill behind the numbers: they are readings, not controls. */
+        .tally { display: flex; align-items: center; color: #c2607f; }
+        .tally-pair { display: inline-flex; align-items: center; gap: 10px; animation: tallyIn .32s var(--ease); }
+        .tally-pair[hidden] { display: none; }
+        @keyframes tallyIn { from { opacity: 0; transform: translateY(4px); } to { opacity: 1; transform: none; } }
+        .pair { display: inline-flex; align-items: center; gap: 5px; }
+        /* On the harmonic step (1em) like every other chrome size; w600 keeps the
+           same ink beside the 19px glyphs that the old off-scale .93em/700 had. */
+        .cnt { color: var(--text-dark); font-size: 1em; font-weight: var(--w-mid); font-variant-numeric: tabular-nums; min-width: 1em; text-align: left; }
+        .sep { opacity: .5; font-weight: var(--w-soft); }
+        .tg { display: block; flex: none; }
+        .tg.dim { opacity: .5; }
+
+        /* ── Cards: the one card language ─────────────────────────────────────
+           Both tabs, both densities. Summarized, a card is a single header line:
+           status lamp, name, the tab's own action (services: the compact
+           go-elsewhere link; nodes: the power lever), and the unfold arrow.
+           Expanded, the paperwork stacks straight down on the name's left axis -
+           description first, then the address line - all at --fs-meta, one
+           vertical rhythm, no side-by-side spreads.
+           Lamp-cast shadows: the brand-mark lamp scrolls with the document, so
+           every card's lamp→card vector is fixed at layout time. JS writes each
+           card's --cast / --cast-lift once per render (and on resize, riding the
+           canvas's existing handler) - down-right of the top-left lamp, warmer
+           and tighter up close, cooler, longer and softer far away. */
+        /* Column floor = the node header's fixed chrome (≈154px: 21px pad +
+           12px lamp + 12px gap + the 107px lever/arrow lane + 2px border) plus
+           the 134px name slot that seats the longest realistic pretty
+           ("Gallery & Storage" measures 133px) - a second column only forms
+           once every card can carry that acceptance name unclipped, so the
+           two-column band can never re-clip what one column shows whole. */
+        .grid { display: grid; grid-template-columns: repeat(auto-fill, minmax(min(288px, 100%), 1fr)); gap: var(--sp-2); align-items: start; }
+        /* ── Desk widths only (the phone grid above is untouched below 661px):
+           the nodes flow trades the equal-column grid for the shelf's own
+           centered-wrap language, and each card HUGS its content width between
+           two ladder rails - min 260px (≈152px of header chrome - 21px pad +
+           12px lamp + 12px gap + the 107px lever/arrow lane - plus eleven
+           glyphs of --fs-tab at --w-strong; the phone grid's floor sits one
+           acceptance-name step higher, see .grid) and max
+           260 × √φ ≈ 331px (one type-ladder step up; a truly absurd name still
+           takes the one-line ellipsis there, title tooltip intact). Row heights
+           keep the grid's exact physics - top-aligned, every summarized header
+           one uniform height. In detailed density a card's fold contributes its
+           widest line to the hug; in compact density the fold is width-contained
+           (JS mirrors the tab's density onto #nodes-view), so a summarized card
+           fits its NAME - both spellings of it, since the crossfade stack keeps
+           pretty and real in one cell, which is why the guest⇄allumeur flip
+           never moves a surviving card's width and the curtain's FLIP glide
+           carries the reflow alone. */
+        @media (min-width: 661px) {
+            #nodes-view .grid { display: flex; flex-wrap: wrap; justify-content: center; align-items: flex-start; }
+            #nodes-view .grid > .card { flex: 0 1 auto; min-width: 260px; max-width: 331px; }
+            #nodes-view.vm-compact .fold-body { contain: inline-size; }
+        }
+        .card {
+            background: var(--card); border: 1px solid var(--line); border-radius: 20px; overflow: hidden;
+            box-shadow: 0 1px 2px rgba(216,27,96,.04), var(--cast, 0 12px 30px -16px rgba(244,143,177,.5));
+            transition: transform .2s var(--ease), box-shadow .2s var(--ease), border-color .2s var(--ease);
+            --act-w: 50px; /* the header action slot: the lever's width… */
+            --act-off: 26px; /* the action's distance from the chevron lane */
+            --lane: 36px; /* …plus the chevron's lane and a cushion before the action */
+        }
+        /* The compact go-tile sits a nudge closer to the chevron, and its space
+           is truly reserved: the toggle's right padding (--act-w + --lane) must
+           cover the tile's far edge (--act-off + --act-w) with room to spare, so
+           --lane ≥ --act-off + a 6px cushion - no glyph ever sits under the tile
+           at any width; a name that would reach it takes the ellipsis instead. */
+        .card.svc-card { --act-w: 30px; --act-off: 20px; --lane: 26px; }
+        .card:hover { transform: translateY(-3px); border-color: #fbc4d9; box-shadow: 0 1px 2px rgba(216,27,96,.05), var(--cast-lift, 0 18px 40px -16px rgba(244,143,177,.65)); }
+        .card.enter { animation: cardIn .35s var(--ease) both; }
+        /* The header line. The toggle button owns the whole line and reserves the
+           right-hand lane with padding; the action and the arrow sit absolutely in
+           that lane, so nothing interactive ever nests inside the button. */
+        .card-head { position: relative; display: flex; align-items: center; transition: background .2s var(--ease); }
+        .card-head:hover { background: #fff2f7; }
+        .card-toggle {
+            flex: 1; min-width: 0; display: flex; align-items: center; gap: 12px;
+            background: transparent; border: none; cursor: pointer; font-family: inherit; color: inherit; text-align: left;
+            padding: var(--sp-2) calc(var(--sp-3) + var(--act-w) + var(--lane)) var(--sp-2) var(--sp-3);
+        }
+        /* The lamp carries the whole state on a summarized card, so it burns a size larger. */
+        .card-toggle .dot { width: 12px; height: 12px; }
+        /* One line, always - the same clamp the tray's host-name wears: a header
+           that wrapped would stand a row taller than its shelf neighbours. The
+           full name lives in the title attr; the ellipsis is the tell. */
+        .card-name { flex: 1; min-width: 0; font-size: var(--fs-tab); font-weight: var(--w-strong); line-height: 1.3; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+        /* ── Pretty names: every name slot that has a guest-facing name stacks both
+           spellings in one grid cell - the pretty face and the real one - and the
+           body's showpretty class (flipped the instant the mode flips, riding the
+           mark's own held-glow beat) crossfades between them. Each span clamps to
+           the same one-line ellipsis rule as its slot; a slot whose pretty is empty
+           renders a single plain span, so nothing blends against itself. */
+        .card-name, .host-name { display: grid; }
+        .nm { grid-area: 1 / 1; min-width: 0; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; transition: opacity .45s var(--ease); }
+        /* The incoming spelling holds back ~80ms so the outgoing one is already
+           mostly clear - no mid-blend double exposure. The delay lives on each
+           span's *incoming* state only, so the outgoing fade always starts at
+           once and the pair stays complementary. */
+        .nm-g { opacity: 0; pointer-events: none; }
+        body.showpretty .nm-g { opacity: 1; pointer-events: auto; transition-delay: .08s; }
+        body.showpretty .nm-a { opacity: 0; pointer-events: none; }
+        body:not(.showpretty) .nm-a { transition-delay: .08s; }
+        .chev { position: absolute; right: var(--sp-3); top: 50%; transform: translateY(-50%); color: #d78ba8; transition: transform .3s var(--ease); }
+        .card.open .chev { transform: translateY(-50%) rotate(180deg); }
+        .card-head .card-act { position: absolute; top: 50%; right: calc(var(--sp-3) + var(--act-off)); transform: translateY(-50%); }
+        /* Services' header action IS the link: a compact "opens elsewhere" tile,
+           eroded down from the old oversized address pill. */
+        .card-go {
+            width: 30px; height: 30px; border-radius: 10px; display: inline-flex; align-items: center; justify-content: center;
+            text-decoration: none; color: var(--pink-dark); background: #fde7f0; border: 1px solid #f9cfe0;
+            transition: background .22s var(--ease), color .22s var(--ease), border-color .22s var(--ease),
+                        opacity .3s var(--ease), transform .3s var(--ease), visibility 0s;
+        }
+        .card-go:hover { background: var(--pink-main); border-color: var(--pink-main); color: #fff; }
+        /* An expanded card hands the outward journey to its body's address link, so
+           the header tile bows out - a small fade-and-shrink on the house curve, in
+           its absolute lane (the name and arrow never move) - and returns the same
+           way on contract. visibility trails the fade out (and leads the fade in) so
+           the hidden tile also leaves the tab order. */
+        .card.open .card-go {
+            opacity: 0; transform: translateY(-50%) scale(.55); visibility: hidden;
+            transition: background .22s var(--ease), color .22s var(--ease), border-color .22s var(--ease),
+                        opacity .3s var(--ease), transform .3s var(--ease), visibility 0s .3s;
+        }
+        /* The unfold animates the body's measured height (animateFold) with a light
+           fade - gentle even with every card open at once. */
+        .fold-body { max-height: 0; overflow: hidden; transition: max-height .38s var(--ease); }
+        .card-body { display: flex; flex-direction: column; align-items: flex-start; gap: var(--sp-1); padding: 2px var(--sp-3) var(--sp-2) calc(var(--sp-3) + 24px); opacity: 0; transition: opacity .3s var(--ease); }
+        .card.open .card-body { opacity: 1; transition-delay: .08s; }
+        .card-desc { color: var(--text-muted); font-size: var(--fs-meta); font-weight: var(--w-soft); font-style: italic; line-height: 1.5; }
+        /* ── The contracted/expanded seam, desk widths (route two - the
+           description associates with the NAME): expanded, the description
+           stands exactly sp-2 under the name - the very step the closed header
+           already wears as its bottom padding - while the paperwork (chip/ip,
+           address) drops a full sp-3 below it (the column's sp-1 gap + this
+           sp-2 margin; the φ ladder is additive, sp-1 + sp-2 = sp-3 exactly,
+           so the two seams sit one φ step apart). Name + description read as
+           the card's identity - what the closed card promised - and the φ-step
+           break under them is where the unfold visibly begins. One rule pair,
+           node and service cards alike; phone keeps its own proportions. */
+        @media (min-width: 661px) {
+            .card-body { padding-top: 0; }
+            .card-body > .card-desc { margin-bottom: var(--sp-2); }
+        }
+        /* The full address, spoken quietly: same size as the description, no pill,
+           no underline in any state - the pink ink and the hand it invites are the
+           tell. (No arrow glyph here: the link IS the destination readout, and the
+           go-arrow already lives on the summarized card's tile.) */
+        .card-addr {
+            display: inline; max-width: 100%; text-decoration: none;
+            color: var(--pink-dark); font-size: var(--fs-meta); font-weight: var(--w-mid);
+            font-variant-numeric: tabular-nums; letter-spacing: .02em;
+            /* Inline (not flex) so a long address takes one calm wrap at unit
+               width instead of clipping at the card's edge. The markup plants a
+               <wbr> before the :port, so the wrap keeps host and port intact;
+               overflow-wrap stays only as a last resort for an unbreakable host. */
+            overflow-wrap: anywhere; line-height: 1.5;
+            transition: color .22s var(--ease);
+        }
+        .card-addr:hover { color: #b01450; }
+        .card-addr:active, .card-addr:visited, .card-addr:focus { text-decoration: none; }
+        .card-meta { display: flex; flex-wrap: wrap; align-items: center; gap: var(--sp-1) var(--sp-2); }
+        .card-ip { color: var(--text-muted); font-size: var(--fs-meta); font-weight: var(--w-body); font-variant-numeric: tabular-nums; letter-spacing: .02em; }
+        .chip { display: inline-flex; align-items: center; gap: 7px; border-radius: 999px; padding: 3px 11px 3px 9px; font-size: var(--fs-meta); font-weight: var(--w-mid); letter-spacing: .02em; white-space: nowrap; }
+        .chip.up { background: var(--up-tint); color: var(--up-ink); }
+        .chip.down { background: var(--down-tint); color: var(--down-ink); }
+        /* Direction of travel: waking warms toward a pale peach; powering down stays gray. */
+        .chip.confirming_up { background: var(--wake-tint); color: var(--wake-ink); }
+        .chip.confirming_down { background: var(--wait-tint); color: var(--wait-ink); }
+        /* A LUKS-blocked node pings once woken but sits at a passphrase prompt, so ssh - and
+           therefore the off lever - cannot reach it until someone unlocks it at the console. */
+        .card-luks { align-self: flex-start; background: var(--pink-light); border: 1px solid #fbc9db; color: var(--pink-dark); border-radius: 12px; padding: var(--sp-1) var(--sp-2); font-size: var(--fs-meta); font-weight: var(--w-mid); letter-spacing: .1px; line-height: 1.35; cursor: help; }
+        .switch { position: relative; display: inline-block; width: 50px; height: 26px; flex: none; }
+        .switch input { opacity: 0; width: 0; height: 0; }
+        /* Off track: a shade deeper than the pale badge pink, with a hairline, so the resting
+           lever is legible on a white card without ever reading as "on". */
+        .slider { position: absolute; cursor: pointer; inset: 0; background-color: #f6cbdb; box-shadow: inset 0 0 0 1px rgba(216,27,96,.14); transition: background-color .28s var(--ease), box-shadow .28s var(--ease); border-radius: 26px; }
+        .slider:before { position: absolute; content: ""; height: 18px; width: 18px; left: 4px; bottom: 4px; background-color: #fff; transition: transform .28s var(--ease); border-radius: 50%; box-shadow: 0 1px 3px rgba(0,0,0,.15); }
+        input:checked + .slider { background-color: var(--pink-main); box-shadow: none; }
+        /* A lever flipped on is a lit lamp: the thumb warms toward candle-white and
+           carries a faint lamplight halo. The track itself stays pink. */
+        input:checked + .slider:before { transform: translateX(24px); background-color: #fffdf4; box-shadow: 0 1px 3px rgba(0,0,0,.15), 0 0 7px rgba(249,229,181,.95); }
+        input:disabled + .slider { cursor: wait; }
+        /* Pending: the lever has snapped to its target position but the state is not yet
+           confirmed by the network card, so it reads slightly gray and gently pulses. */
+        .slider.pending { opacity: 0.45; filter: grayscale(0.6); animation: breathe 1.1s ease-in-out infinite; }
+        /* Locked: this node can be woken but never powered off remotely. The on-lever is held
+           fast in its own visual language - a muted, outlined, faintly hatched track with a
+           bold padlock and a barred cursor - so it reads as "seized" at a glance, distinct from
+           both a live pink on-lever and the gray pending pulse. */
+        input:disabled + .slider.locked { background-color: #f2d6e2; background-image: repeating-linear-gradient(45deg, rgba(216,27,96,.13) 0 3px, transparent 3px 7px); box-shadow: inset 0 0 0 2px rgba(216,27,96,.55); opacity: 1; filter: none; animation: none; cursor: not-allowed; }
+        input:disabled + .slider.locked:before { background-color: #fff; box-shadow: 0 1px 3px rgba(0,0,0,.15); }
+        input:disabled + .slider.locked:after { content: ""; position: absolute; left: 7px; top: 50%; width: 11px; height: 13px; transform: translateY(-50%); background: no-repeat center / contain url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 24 24' fill='%23d81b60'%3E%3Cpath d='M12 2a5 5 0 0 0-5 5v3H6a2 2 0 0 0-2 2v8a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2v-8a2 2 0 0 0-2-2h-1V7a5 5 0 0 0-5-5zm-3 8V7a3 3 0 0 1 6 0v3H9z'/%3E%3C/svg%3E"); filter: drop-shadow(0 1px 1px rgba(216,27,96,.25)); }
+        @keyframes breathe { 0%,100% { opacity: 0.35; } 50% { opacity: 0.6; } }
+        @keyframes cardIn { from { opacity: 0; transform: translateY(8px); } to { opacity: 1; transform: translateY(0); } }
+        .dot { display: inline-block; width: 10px; height: 10px; border-radius: 50%; flex: none; }
+        /* A lit lamp: a steady double halo rather than a pulsing one - it reads just as alive
+           and stays cheap to paint on the little machines this page is usually viewed from. */
+        .dot.up { background-color: var(--success); box-shadow: 0 0 4px var(--success), 0 0 11px rgba(197,226,207,.6); }
+        /* Down is a calm, resting "off" - a soft cherry-blossom fill, no ring, no glow -
+           clearly not the tea green of "up" nor the gray of confirming. The danger hue
+           is kept for real faults. */
+        .dot.down { background-color: var(--down-dot); box-shadow: 0 0 4px rgba(190,140,155,.28); }
+        .dot.confirming_up, .dot.confirming_down { background-color: #cdc4c9; box-shadow: 0 0 8px #cdc4c9; animation: breathe 1.1s ease-in-out infinite; }
+        .dot.confirming_up { background-color: var(--wake-dot); box-shadow: 0 0 8px var(--wake-dot); }
+
+        /* ── The shelf: services seated under their host machine ──────────────
+           One centered wrapping flow of blocks - host trays and standalone unit
+           cards - filled inside-out: JS reads the shelf's width, picks the row's
+           unit count U, sizes the unit so a full tray row lands flush (two tray
+           chromes reserved), and clamps every tray to min(its services, U) units.
+           The widths live in CSS vars; the flexbox and each tray's own grid do
+           the actual laying-out, so a resize is one style recalc, no thrash. */
+        .shelf { --unit: 240px; display: flex; flex-wrap: wrap; justify-content: center; align-items: flex-start; gap: 13px; }
+        .shelf > * { min-width: 0; }
+        .shelf > .solo { width: var(--unit); }
+        /* The tray: a frosted piece of street holding one machine's lamps.
+           Radius is concentric with the unit cards (20px inner + 10px padding),
+           and the width is exactly --hu units - guest mode swaps in the
+           favourites-only count, so the mode flip re-widths trays in one style
+           recalc. The mode flip's movement is not this ease's to run: glideSeats
+           parks it for its measuring frame so the new widths land at once and a
+           single FLIP carries every tray and card to its new seat. */
+        .host-card {
+            --hu: var(--hu-all, 1);
+            width: calc(var(--hu) * var(--unit) + (var(--hu) - 1) * 13px + 22px);
+            max-width: 100%;
+            background: linear-gradient(180deg, rgba(255,255,255,.62), rgba(255,255,255,.34));
+            border: 1px solid var(--line); border-radius: 30px; padding: 5px 10px 10px;
+            box-shadow: 0 1px 2px rgba(216,27,96,.03), var(--cast, 0 12px 30px -16px rgba(244,143,177,.45));
+            transition: width .45s var(--ease), box-shadow .2s var(--ease);
+        }
+        body.guest .host-card { --hu: var(--hu-fav, 1); }
+        /* A live window drag reflows instantly, and so does the frame in which a
+           FLIP measures its destination - the width ease never fights the cursor,
+           and never races the glide. */
+        body.resizing .host-card { transition: none; }
+        .host-head { display: flex; align-items: center; gap: 9px; padding: 8px 12px 8px; }
+        /* One line, always: a header that grew a second line would push its unit
+           rows 19px below its neighbours'. The full name lives in the title attr. */
+        .host-name { flex: 1 1 auto; min-width: 0; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; color: var(--text-muted); font-size: var(--fs-meta); font-weight: var(--w-mid); letter-spacing: .05em; }
+        .host-count { margin-left: auto; flex: none; color: var(--danger-deep); font-size: var(--fs-meta); font-weight: var(--w-body); font-variant-numeric: tabular-nums; }
+        .host-count .ct-fav { display: none; }
+        body.guest .host-count .ct-all { display: none; }
+        body.guest .host-count .ct-fav { display: inline; }
+        .host-grid { display: grid; grid-template-columns: repeat(var(--hu, 1), minmax(0, 1fr)); gap: 13px; align-items: start; }
+        /* Node down (or powering down): the whole street sleeps - a soft,
+           desaturated hush over the tray; the links underneath stay live, just
+           visibly asleep. The change moments play a from-only keyframe, so dim
+           and undim glide calmly even across full re-renders. */
+        .host-card.asleep { opacity: .7; filter: grayscale(.4) saturate(.8); }
+        /* Legible sleep: the hush multiplies every ink by the tray's opacity, so
+           the resting inks alone would fall under 3:1. Inside a dimmed tray the
+           text inks lean darker to buy the contrast back. A .card-name is 16px/700
+           - under the 18.66px bold that WCAG exempts as large text - so it owes the
+           full 4.5:1, and the hush is set at the exact depth that still clears it:
+           names measure 4.87:1 against the composited paper (a live tray reads
+           8.14:1, so an asleep tray keeps only ~60% of full contrast and still
+           plainly reads asleep). The lamps, tiles and pink links keep the
+           desaturated wash - the go-tile and address stay plainly pink, plainly
+           clickable. */
+        .host-card.asleep .card-name { color: #40343b; }
+        /* Darkened to clear 4.5:1 once the tray's own opacity/grayscale have composited over
+           it - the lighter ink measured 3.7-3.8:1 against the real pixels, and these carry
+           the tray's own name and every service's address. */
+        .host-card.asleep .card-desc, .host-card.asleep .host-name, .host-card.asleep .card-ip { color: #453840; }
+        .host-card.just-dimmed { animation: hostDim 1.5s var(--ease); }
+        @keyframes hostDim { from { opacity: 1; filter: none; } }
+        .host-card.just-undimmed { animation: hostWake 1.5s var(--ease); }
+        @keyframes hostWake { from { opacity: .7; filter: grayscale(.4) saturate(.8); } }
+
+        /* ── Wake/sleep choreography: one-shot settles fired ONLY when a poll observes
+           confirming_up→up (a warm bloom) or confirming_down→down (a soft desaturating
+           dim). The classes are applied by the poll-diff in loadNodes - never by a click,
+           never by the optimistic pending flip - and the next render wipes them. */
+        .just-woke { position: relative; }
+        .just-woke::after {
+            content: ""; position: absolute; inset: 0; border-radius: inherit; pointer-events: none;
+            background: radial-gradient(130% 130% at 28% 22%, var(--halo-core), rgba(249,229,181,0) 72%);
+            animation: wakeBloom 1.5s var(--ease) both;
+        }
+        @keyframes wakeBloom { 0% { opacity: 0; transform: scale(.94); } 25% { opacity: 1; transform: scale(1); } 100% { opacity: 0; transform: scale(1.03); } }
+        /* The header's lamp itself blooms too - the light is the star of the line. */
+        .card.just-woke .card-toggle .dot { animation: dotBloom 1.4s var(--ease) both; }
+        @keyframes dotBloom {
+            0% { transform: scale(1); }
+            30% { transform: scale(1.75); box-shadow: 0 0 9px var(--glow), 0 0 20px var(--glow-deep); }
+            100% { transform: scale(1); }
+        }
+        .just-slept { animation: sleepSettle 1.6s var(--ease) both; }
+        @keyframes sleepSettle {
+            0% { opacity: 1; filter: none; }
+            38% { opacity: .58; filter: grayscale(.55) saturate(.75); }
+            100% { opacity: 1; filter: none; }
+        }
+        /* A tally numeral takes a small beat at the moment a poll moves its value. */
+        .cnt.beat { animation: cntBeat .8s var(--ease); }
+        @keyframes cntBeat { 0%, 100% { transform: scale(1); } 35% { transform: scale(1.3); } }
+
+        /* ── The allumeur strikes the lamp: when a poll confirms a machine settling
+           (the same live-data diff the card bloom rides - never a click), the little
+           figure in the brand mark tips onto his toes, leans into the post and raises
+           the pole to the lantern; the mark's lamp flares brighter (a wake) or banks
+           dimmer (a sleep) for a breath, then everyone eases back to the idle errand.
+           One tender ~1.3s beat, transform/opacity only. JS plays these strictly one
+           at a time - see the strike queue below. Reduced motion collapses the whole
+           beat to an instant via the global rule; animationend still fires, so the
+           queue drains the same way. */
+        .al-actor { transform-origin: 13.5px 41.5px; }
+        .al-pole { transform-origin: 17px 32.6px; }
+        .al-halo, .al-flame { transform-box: fill-box; transform-origin: center; }
+        .brand-mark.act .al-actor { animation: alStrike 1.3s var(--ease) both; }
+        .brand-mark.act .al-pole { animation: alPoleRaise 1.3s var(--ease) both; }
+        .brand-mark.act-on .al-halo, .brand-mark.act-on .al-flame { animation: alFlareUp 1.3s var(--ease) both; }
+        .brand-mark.act-off .al-halo, .brand-mark.act-off .al-flame { animation: alFlareDim 1.3s var(--ease) both; }
+        @keyframes alStrike {
+            0%, 100% { transform: none; }
+            28%, 60% { transform: rotate(6deg) translate(.4px, -.7px); }
+        }
+        /* Idle keeps the pole down at his side; the strike swings it up ~95° (with a
+           slight reach-stretch) so the ember arcs from beside his boot into the lamp's
+           halo, and the front arm rises in sympathy along the same beat. */
+        @keyframes alPoleRaise {
+            0%, 100% { transform: none; }
+            28%, 60% { transform: rotate(-95deg) scale(1.32); }
+        }
+        .al-armF { transform-origin: 14.9px 33.9px; }
+        .brand-mark.act .al-armF { animation: alArmRaise 1.3s var(--ease) both; }
+        @keyframes alArmRaise {
+            0%, 100% { transform: none; }
+            28%, 60% { transform: rotate(-58deg); }
+        }
+        @keyframes alFlareUp {
+            0%, 100% { transform: none; opacity: 1; }
+            34%, 62% { transform: scale(1.34); opacity: 1; }
+        }
+        @keyframes alFlareDim {
+            0%, 100% { transform: none; opacity: 1; }
+            34%, 62% { transform: scale(.8); opacity: .3; }
+        }
+        /* ── The strike reaches the whole page: on a polled UP settle a warm bloom
+           radiates out of the mark and washes gently across the site; on a DOWN
+           settle the same strike dims the page a shade instead - he subtracted a
+           lamp. One fixed, pointer-transparent veil whose gradient is anchored at
+           the mark (JS writes --strike-x/y from its live rect as each strike
+           starts); only the veil's opacity animates - compositor work, zero
+           layout - on the same 1.3s beat as the strike itself, easing back to
+           the dusk curve's ambient baseline. Rides the strike queue's settles
+           only (never a click, never the mode flip), and reduced motion skips
+           the whole veil in JS. */
+        .page-light { position: fixed; inset: 0; pointer-events: none; z-index: 3; opacity: 0; }
+        .page-light.lit {
+            background: radial-gradient(140vmax 110vmax at var(--strike-x, 100px) var(--strike-y, 100px),
+                rgba(249,229,181,.32) 0%, rgba(249,229,181,.12) 34%, rgba(249,229,181,0) 68%);
+            animation: pageStrike 1.3s var(--ease) both;
+        }
+        .page-light.dimmed {
+            background: radial-gradient(140vmax 110vmax at var(--strike-x, 100px) var(--strike-y, 100px),
+                rgba(92,75,81,0) 0%, rgba(92,75,81,.05) 30%, rgba(92,75,81,.11) 75%);
+            animation: pageStrike 1.3s var(--ease) both;
+        }
+        @keyframes pageStrike { 0% { opacity: 0; } 36% { opacity: 1; } 62% { opacity: .92; } 100% { opacity: 0; } }
+        /* ── The light never paints over the lamplighter: the warm glow layers
+           BEHIND the figure (the mark's ::after sinks under the svg in the
+           button's own stacking context), and while it burns, the figure takes a
+           gentle warm grade - his plums lean golden, nothing is washed away -
+           easing in and out on the strike's own tempo. The soft pool at his feet
+           is drawn in the svg itself, so he stands ON the little planet. */
+        .brand-mark::after { z-index: -1; }
+        .al-actor { transition: filter 1.1s var(--ease); }
+        .brand-mark.held .al-actor, .brand-mark.act.act-on .al-actor { filter: sepia(.3) saturate(1.3) brightness(1.04); }
+        /* ── The mode flip's held breath: a mode toggle is the allumeur's own errand.
+           He strikes as usual, but the mark also breathes out a longer, warmer glow -
+           risen in a moment, held for a couple of beats, released slowly - while the
+           curtained rows drift in below. Composited opacity/transform only: an ::after
+           halo on the mark plus a matching held swell on the lamp's own halo (this
+           pair of rules sits after the act-on flare so the long beat wins the halo). */
+        .brand-mark::after {
+            content: ""; position: absolute; inset: -26px; border-radius: 50%; pointer-events: none;
+            background: radial-gradient(closest-side, rgba(251,233,184,.9) 0%, rgba(249,229,181,.42) 52%, rgba(249,229,181,0) 74%);
+            opacity: 0;
+        }
+        .brand-mark.held::after { animation: heldGlow 3.8s var(--ease) both; }
+        @keyframes heldGlow {
+            0% { opacity: 0; transform: scale(.72); }
+            16% { opacity: 1; transform: scale(1); }
+            58% { opacity: .93; transform: scale(1.07); }
+            100% { opacity: 0; transform: scale(1.16); }
+        }
+        .brand-mark.held .al-halo { animation: alHaloHeld 3.8s var(--ease) both; }
+        @keyframes alHaloHeld {
+            0%, 100% { transform: none; opacity: 1; }
+            16% { transform: scale(1.42); }
+            58% { transform: scale(1.3); }
+        }
+
+        /* ── Guest curtain: favourites are the public face; everything else exists
+           only in allumeur mode. Hidden rows/cards are display:none (not merely
+           faded) so guests' tab order, tallies and screen readers agree with their
+           eyes. Curation, not security - the API is LAN-only and returns everything. */
+        body.guest .nf { display: none; }
+        /* The reveal/conceal drift: cards (and whole trays) ease in or out on a
+           long slow stagger. */
+        .nf-in { animation: nfIn 1.05s var(--ease) both; }
+        @keyframes nfIn { from { opacity: 0; transform: translateY(10px) scale(.985); } to { opacity: 1; transform: none; } }
+        .nf-out { animation: nfOut .8s var(--ease) both; }
+        @keyframes nfOut { from { opacity: 1; transform: none; } to { opacity: 0; transform: translateY(8px); } }
+        /* With zero favourites (the realistic day-one state after migration), a guest
+           would face an empty card shell or a bare border sliver - this message stands
+           in beside the curtained rows, and body.guest alone decides which face shows,
+           so the mode flip needs no re-render. */
+        .nf-empty { display: none; }
+        body.guest .nf-empty { display: block; }
+
+        /* ── The view pill (the control block's second, smaller row): expand-all /
+           collapse-all. Detailed view is simply every card expanded; the per-card
+           arrows still work on top, and each tab remembers its own preference. */
+        .viewmode { display: inline-flex; background: var(--card); border: 1px solid var(--line); border-radius: 999px; padding: 3px; box-shadow: 0 3px 8px rgba(244,143,177,.12); }
+        .vm-btn { border: none; background: transparent; color: #c2607f; display: inline-flex; align-items: center; justify-content: center; padding: 4px 10px; border-radius: 999px; cursor: pointer; transition: background .25s var(--ease), color .25s var(--ease), box-shadow .25s var(--ease); }
+        .vm-btn svg { display: block; }
+        .vm-btn.active { background: var(--pink-main); color: #fff; box-shadow: 0 3px 8px rgba(244,143,177,.4); }
+
+        .tab-content { display: none; }
+        .active-tab { display: block; }
+        /* Narrow widths keep the exact same geometry - combos on the card's axis,
+           freshness far right - only the paddings step down and the brand square's
+           cap re-bakes the tighter card padding. */
+        @media (max-width: 660px) {
+            body { padding: var(--sp-2) var(--sp-3) var(--sp-3); }
+            .masthead { padding: var(--sp-2); }
+            .brand { left: var(--sp-2); width: min(86px, calc(50% - 88px)); }
+        }
+        /* SE-class: the whole chrome takes one size step down - tighter tab
+           padding, smaller pill and refresh - and the freshness pair degrades
+           gracefully to icon-only (the ticking label would brush the centered
+           pill here; the combos never leave the card's axis). A failed poll
+           still shows: the stale ink moves onto the refresh button itself.
+           (No brand override here: the square inherits the 660-band cap, so
+           it stays monotone as the viewport narrows - see the .brand note.) */
+        @media (max-width: 374px) {
+            .seg-btn { padding: var(--sp-1) 15px; }
+            .vm-btn { padding: 4px 6px; }
+            .refresh-btn { width: 1.75rem; height: 1.75rem; }
+            #updated { display: none; }
+            #updated.stale + .refresh-btn { color: var(--danger-deep); border-color: var(--danger-deep); }
+            /* The cards take the same one-size step down: the node card adopts
+               the service card's lane geometry (act-off 20 / lane 26 - the
+               6px cushion holds: lane ≥ act-off + 6) over a 40px lever, and
+               both card types drop their sp-3 side paddings one φ step to
+               sp-2, the fold indent re-baked so the paperwork still hangs on
+               the name's left axis (sp-2 + 12px lamp + 12px gap). Header
+               chrome falls ≈154px → ≈118px, so "Gallery & Storage" (133px)
+               rides unclipped down to ~324px viewports even beside classic
+               scrollbars (which cost this column 30px); only the 320-323
+               sliver under such scrollbars still hands it the title-attr
+               ellipsis - gutterless phone screens are clean at 320. The
+               lever is absolute, so the header's uniform row height (set by
+               the name line) never moves. */
+            .card { --act-w: 40px; --act-off: 20px; --lane: 26px; }
+            .card-toggle { padding: var(--sp-2) calc(var(--sp-2) + var(--act-w) + var(--lane)) var(--sp-2) var(--sp-2); }
+            .chev { right: var(--sp-2); }
+            .card-head .card-act { right: calc(var(--sp-2) + var(--act-off)); }
+            .card-body { padding-left: calc(var(--sp-2) + 24px); padding-right: var(--sp-2); }
+            .switch { width: 40px; height: 24px; }
+            .slider:before { width: 16px; height: 16px; }
+            input:checked + .slider:before { transform: translateX(16px); }
+        }
+        @media (prefers-reduced-motion: reduce) {
+            /* Bare * never matches pseudo-elements, which would let the ::after
+               glows (heldGlow, wakeBloom) play at full length - name them too. */
+            *, *::before, *::after { animation-duration: .001ms !important; animation-delay: 0s !important; animation-iteration-count: 1 !important; transition-duration: .001ms !important; transition-delay: 0s !important; }
+        }
+    </style>
+</head>
+<body class="guest showpretty">
+    <div class="page-light" id="page-light" aria-hidden="true"></div>
+    <div class="container">
+        <div class="candle-glow" aria-hidden="true"></div>
+        <header class="masthead">
+            <div class="brand" title="allumeur">
+                <h1 class="sr-only">allumeur</h1>
+                <button type="button" class="brand-mark" aria-pressed="false" aria-label="allumeur mode" onclick="toggleAllumeurMode()" onanimationend="lampActionEnd(event)">
+                    <!-- The allumeur himself, at rest between errands: a small figure atop a
+                         little planet's curve, golden scarf flying, lighting pole held down by
+                         his side - its ember resting just above the grass, nowhere near the
+                         lamp. The lamp itself burns steadily all day and all night; he only
+                         raises the pole to tend it during an action (a settle, or the secret
+                         mode flip - the mark doubles as the allumeur-mode button).
+                         Fish-eye grammar: the lamp head is the big warm focal thing; the post,
+                         the ground and the figure recede in slighter strokes around it. -->
+                    <svg viewBox="0 0 48 48" width="38" height="38" fill="none" aria-hidden="true">
+                        <defs>
+                            <radialGradient id="lamp-halo" cx="50%" cy="50%" r="50%">
+                                <stop offset="0%" stop-color="#fbe9b8" stop-opacity=".98"/>
+                                <stop offset="45%" stop-color="#f9e5b5" stop-opacity=".6"/>
+                                <stop offset="100%" stop-color="#f9e5b5" stop-opacity="0"/>
+                            </radialGradient>
+                            <linearGradient id="lamp-glass" x1="0" y1="0" x2="0" y2="1">
+                                <stop offset="0%" stop-color="#fff3cf"/>
+                                <stop offset="100%" stop-color="#f6d183"/>
+                            </linearGradient>
+                            <linearGradient id="lamp-flame" x1="0" y1="0" x2="0" y2="1">
+                                <stop offset="0%" stop-color="#f9d98a"/>
+                                <stop offset="100%" stop-color="#f0b968"/>
+                            </linearGradient>
+                            <radialGradient id="al-shade" cx="50%" cy="50%" r="50%">
+                                <stop offset="0%" stop-color="#6e5661" stop-opacity=".38"/>
+                                <stop offset="65%" stop-color="#6e5661" stop-opacity=".17"/>
+                                <stop offset="100%" stop-color="#6e5661" stop-opacity="0"/>
+                            </radialGradient>
+                        </defs>
+                        <circle class="al-halo" cx="33.5" cy="13.5" r="11" fill="url(#lamp-halo)"/>
+                        <g stroke="#f0c98a" stroke-width="1.4" stroke-linecap="round">
+                            <path d="M42.4 7.2 l1.9 -1.5"/><path d="M44.2 13.5 h2.4"/><path d="M42.4 19.8 l1.9 1.5"/>
+                        </g>
+                        <path d="M8 7.2 l.8 1.9 1.9 .8 -1.9 .8 -.8 1.9 -.8 -1.9 -1.9 -.8 1.9 -.8 Z" fill="#f8bbd0"/>
+                        <path d="M5 44.6 Q24 40.2 43 44.6" stroke="#ec9fbe" stroke-width="1.6" stroke-linecap="round"/>
+                        <circle cx="33.5" cy="5.9" r="1.25" fill="#d81b60"/>
+                        <path d="M28.4 10.9 Q33.5 6.2 38.6 10.9 Z" fill="#d81b60" stroke="#d81b60" stroke-width="1" stroke-linejoin="round"/>
+                        <path d="M29.2 11.9 h8.6 L36.1 19 h-5.2 Z" fill="url(#lamp-glass)" stroke="#d81b60" stroke-width="1.3" stroke-linejoin="round"/>
+                        <g class="al-flame">
+                            <path d="M33.5 13 C34.8 14.6 35.4 15.5 35.4 16.4 a1.9 1.9 0 1 1 -3.8 0 C31.6 15.5 32.2 14.6 33.5 13 Z" fill="url(#lamp-flame)"/>
+                            <ellipse cx="33.5" cy="16.3" rx=".75" ry="1" fill="#fff8e2"/>
+                        </g>
+                        <rect x="30.3" y="19.3" width="6.4" height="1.4" rx=".7" fill="#d81b60"/>
+                        <rect x="32.8" y="20.7" width="1.4" height="20" rx=".7" fill="#d81b60"/>
+                        <rect x="31.6" y="40.3" width="3.8" height="1.5" rx=".75" fill="#d81b60"/>
+                        <rect x="30.2" y="41.7" width="6.6" height="1.8" rx=".9" fill="#d81b60"/>
+                        <!-- His grounding: a soft pool of shade at his boots, thrown a touch
+                             away from the lamp's light - the quiet proof he's really standing
+                             there. Static (outside the actor group), so the strike's lean
+                             plays over a shadow that stays put. -->
+                        <ellipse cx="12.4" cy="43.5" rx="6.2" ry="1.6" fill="url(#al-shade)"/>
+                        <g class="al-actor">
+                            <g class="al-pole">
+                                <path d="M17 32.6 L23.8 41.6" stroke="#9a7b62" stroke-width="1.3" stroke-linecap="round"/>
+                                <circle cx="23.8" cy="41.6" r="2" fill="#f9e5b5" fill-opacity=".55"/>
+                                <circle cx="23.8" cy="41.6" r="1.05" fill="#f6d183"/>
+                            </g>
+                            <path d="M12.3 35.2 L16.7 32.8" stroke="#6e5661" stroke-width="1.5" stroke-linecap="round"/>
+                            <circle cx="16.9" cy="32.7" r=".95" fill="#ffdfc7"/>
+                            <path d="M10.9 33.2 Q13.5 31.1 16.1 33.2 L16.8 40.3 Q13.5 41.5 10.2 40.3 Z" fill="#6e5661"/>
+                            <g class="al-armF">
+                                <path d="M14.9 33.9 L18.9 35.4" stroke="#6e5661" stroke-width="1.6" stroke-linecap="round"/>
+                                <circle cx="19.1" cy="35.5" r=".95" fill="#ffdfc7"/>
+                            </g>
+                            <path d="M11.7 31.9 Q8.6 32.6 6.8 31.1 Q7.7 33.9 11.5 33.3 Z" fill="#f2b24c"/>
+                            <rect x="11.5" y="31" width="4.4" height="1.5" rx=".75" fill="#eda63f"/>
+                            <g transform="rotate(-12 13.7 28.3)">
+                                <circle cx="13.7" cy="28.3" r="2.8" fill="#ffdfc7"/>
+                                <path d="M10.9 27.3 Q13.7 24.5 16.5 27.3 Z" fill="#6e5661"/>
+                                <rect x="10.4" y="26.8" width="6.6" height="1.05" rx=".5" fill="#6e5661"/>
+                                <circle cx="15" cy="29" r=".42" fill="#6e5661"/>
+                                <circle cx="13.2" cy="29.9" r=".55" fill="#f6a3c3" fill-opacity=".8"/>
+                            </g>
+                            <path d="M12.4 40.9 L11.8 43.3" stroke="#6e5661" stroke-width="1.5" stroke-linecap="round"/>
+                            <path d="M14.8 40.9 L15.7 43.1" stroke="#6e5661" stroke-width="1.5" stroke-linecap="round"/>
+                        </g>
+                    </svg>
+                </button>
+            </div>
+            <div class="ctrl">
+                <!-- Tabs are identity icons now - no numbers on a button. The words live in
+                     title/aria-label; the glyphs are the labels. -->
+                <div class="ctrl-tabs">
+                    <nav class="seg" id="seg" role="tablist" aria-label="Dashboard views">
+                        <span class="seg-thumb" aria-hidden="true"></span>
+                        <!-- Machines: the lamppost itself - the lamplight the allumeur tends. -->
+                        <button class="seg-btn active" id="tab-nodes" role="tab" aria-selected="true" aria-controls="nodes-tab" title="Machines" aria-label="Machines" onclick="switchTab('nodes')">
+                            <svg class="tg" viewBox="0 0 20 20" width="19" height="19" aria-hidden="true">
+                                <circle cx="10" cy="7.4" r="5.8" fill="#f9e5b5" fill-opacity=".55"/>
+                                <circle cx="10" cy="2.5" r="1.05" fill="currentColor"/>
+                                <path d="M5.9 6.6 Q10 2.8 14.1 6.6 Z" fill="currentColor"/>
+                                <path d="M6.5 7.5 h7 L12.1 13 H7.9 Z" fill="#f9e5b5" stroke="currentColor" stroke-width="1.4" stroke-linejoin="round"/>
+                                <path d="M10 8.6 C10.8 9.6 11.2 10.2 11.2 10.9 a1.2 1.2 0 1 1 -2.4 0 C8.8 10.2 9.2 9.6 10 8.6 Z" fill="#eda63f"/>
+                                <rect x="7.5" y="13.4" width="5" height="1.3" rx=".65" fill="currentColor"/>
+                                <rect x="9.4" y="14.7" width="1.2" height="3" rx=".6" fill="currentColor"/>
+                                <rect x="8" y="17.7" width="4" height="1.3" rx=".65" fill="currentColor"/>
+                            </svg>
+                        </button>
+                        <!-- Services: the little lamp planted on its own small planet, ringed
+                             by an orbit - the lamplit worlds he tends. (The roadside street
+                             lamps carry the off/on tally pair below the bar instead.) -->
+                        <button class="seg-btn" id="tab-services" role="tab" aria-selected="false" aria-controls="services-tab" title="Services" aria-label="Services" onclick="switchTab('services')">
+                            <svg class="tg" viewBox="0 0 20 20" width="19" height="19" aria-hidden="true">
+                                <circle cx="10" cy="14.6" r="5.6" fill="currentColor" fill-opacity=".14" stroke="currentColor" stroke-width="1.5"/>
+                                <circle cx="7.3" cy="13.1" r="1.05" fill="currentColor" fill-opacity=".92"/>
+                                <circle cx="12.7" cy="15.9" r=".8" fill="currentColor" fill-opacity=".92"/>
+                                <circle cx="9.1" cy="17.2" r=".6" fill="currentColor" fill-opacity=".8"/>
+                                <ellipse cx="10" cy="14.6" rx="8.7" ry="2.7" transform="rotate(-18 10 14.6)" fill="none" stroke="currentColor" stroke-width="1.2"/>
+                                <g transform="rotate(8 10.6 9)">
+                                    <circle cx="10.6" cy="4.4" r="3.4" fill="#f9e5b5" fill-opacity=".6"/>
+                                    <circle cx="10.6" cy="1.7" r=".7" fill="currentColor"/>
+                                    <path d="M8.1 4.2 Q10.6 1.9 13.1 4.2 Z" fill="currentColor"/>
+                                    <path d="M8.5 4.8 h4.2 L11.9 8.2 H9.3 Z" fill="#f9e5b5" stroke="currentColor" stroke-width="1.1" stroke-linejoin="round"/>
+                                    <path d="M10.6 5.3 C11.2 6 11.4 6.4 11.4 6.9 a.85 .85 0 1 1 -1.7 0 C9.7 6.4 10 6 10.6 5.3 Z" fill="#eda63f"/>
+                                    <rect x="10.2" y="8.4" width=".9" height="1.9" rx=".45" fill="currentColor"/>
+                                </g>
+                            </svg>
+                        </button>
+                    </nav>
+                </div>
+                <div class="ctrl-tools">
+                    <div class="viewmode" role="group" aria-label="Card density for the current tab">
+                        <!-- Fold the chevrons toward each other: every card summarized… -->
+                        <button type="button" class="vm-btn" id="vm-compact" aria-pressed="false" title="Collapse all" aria-label="Collapse all" onclick="setViewMode('compact')">
+                            <svg viewBox="0 0 20 20" width="14" height="14" fill="none" stroke="currentColor" stroke-width="2.2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true">
+                                <path d="M6 3.6l4 4 4-4"/>
+                                <path d="M6 16.4l4-4 4 4"/>
+                            </svg>
+                        </button>
+                        <!-- …or apart: every card expanded. -->
+                        <button type="button" class="vm-btn" id="vm-detailed" aria-pressed="false" title="Expand all" aria-label="Expand all" onclick="setViewMode('detailed')">
+                            <svg viewBox="0 0 20 20" width="14" height="14" fill="none" stroke="currentColor" stroke-width="2.2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true">
+                                <path d="M6 7.6l4-4 4 4"/>
+                                <path d="M6 12.4l4 4 4-4"/>
+                            </svg>
+                        </button>
+                    </div>
+                    <div class="fresh">
+                        <span id="updated">updating…</span>
+                        <button class="refresh-btn" type="button" onclick="refreshActive(this)" aria-label="Refresh now" title="Refresh now">
+                            <svg viewBox="0 0 24 24" width="14" height="14" fill="currentColor" aria-hidden="true"><path d="M12 5V1.8L6.9 6 12 10.2V7a5 5 0 1 1-5 5H4.8a7.2 7.2 0 1 0 7.2-7z"/></svg>
+                        </button>
+                    </div>
+                </div>
+            </div>
+        </header>
+        <!-- The active tab's own on/off tally, standing centered on its own line
+             between the bar and the cards: readings, not controls. Only the pair
+             belonging to the tab on stage is shown; the swap rides the tab switch. -->
+        <div class="tallybar">
+            <div class="tally" id="tally">
+                <span class="tally-pair" id="tally-nodes" role="img" aria-label="Machines: counting…">
+                    <span class="pair">
+                        <!-- Unlit lantern head - big dark glass, slighter finial and arms. -->
+                        <svg class="tg dim" viewBox="0 0 20 20" width="19" height="19" aria-hidden="true">
+                            <circle cx="10" cy="1.9" r="1.1" fill="currentColor"/>
+                            <path d="M5.2 6.9 Q10 2.5 14.8 6.9 Z" fill="currentColor"/>
+                            <rect x="2.9" y="6.1" width="2.2" height="1.2" rx=".6" fill="currentColor"/>
+                            <rect x="14.9" y="6.1" width="2.2" height="1.2" rx=".6" fill="currentColor"/>
+                            <path d="M6 8 h8 L12.6 14.8 H7.4 Z" fill="none" stroke="currentColor" stroke-width="1.4" stroke-linejoin="round"/>
+                            <rect x="6.7" y="15.6" width="6.6" height="1.6" rx=".8" fill="currentColor"/>
+                        </svg>
+                        <span class="cnt" id="cnt-nodes-off">–</span>
+                    </span>
+                    <span class="sep" aria-hidden="true">·</span>
+                    <span class="pair">
+                        <svg class="tg" viewBox="0 0 20 20" width="19" height="19" aria-hidden="true">
+                            <circle cx="10" cy="10.4" r="7.6" fill="#f9e5b5" fill-opacity=".6"/>
+                            <circle cx="10" cy="1.9" r="1.1" fill="currentColor"/>
+                            <path d="M5.2 6.9 Q10 2.5 14.8 6.9 Z" fill="currentColor"/>
+                            <rect x="2.9" y="6.1" width="2.2" height="1.2" rx=".6" fill="currentColor"/>
+                            <rect x="14.9" y="6.1" width="2.2" height="1.2" rx=".6" fill="currentColor"/>
+                            <path d="M6 8 h8 L12.6 14.8 H7.4 Z" fill="#f9e5b5" stroke="currentColor" stroke-width="1.4" stroke-linejoin="round"/>
+                            <path d="M10 9.1 C10.9 10.2 11.4 10.9 11.4 11.7 a1.4 1.4 0 1 1 -2.8 0 C8.6 10.9 9.1 10.2 10 9.1 Z" fill="#eda63f"/>
+                            <rect x="6.7" y="15.6" width="6.6" height="1.6" rx=".8" fill="currentColor"/>
+                        </svg>
+                        <span class="cnt" id="cnt-nodes-on">–</span>
+                    </span>
+                </span>
+                <span class="tally-pair" id="tally-services" role="img" aria-label="Services: counting…" hidden>
+                    <span class="pair">
+                        <!-- The roadside lamp gone dark: post and road only - no rays, no tint… -->
+                        <svg class="tg dim" viewBox="0 0 20 20" width="19" height="19" aria-hidden="true">
+                            <circle cx="5" cy="2.7" r="1" fill="currentColor"/>
+                            <path d="M1.8 6.4 Q5 3.4 8.2 6.4 Z" fill="currentColor"/>
+                            <path d="M2.8 7.3 h4.4 L6.3 11.6 H3.7 Z" fill="none" stroke="currentColor" stroke-width="1.3" stroke-linejoin="round"/>
+                            <rect x="3.2" y="11.9" width="3.6" height="1.1" rx=".55" fill="currentColor"/>
+                            <rect x="4.45" y="13" width="1.1" height="3.6" rx=".55" fill="currentColor"/>
+                            <rect x="1" y="16.6" width="18" height="1.4" rx=".7" fill="currentColor"/>
+                        </svg>
+                        <span class="cnt" id="cnt-services-off">–</span>
+                    </span>
+                    <span class="sep" aria-hidden="true">·</span>
+                    <span class="pair">
+                        <!-- …and lit: two rays cast diagonally into the road, pooling warm. -->
+                        <svg class="tg" viewBox="0 0 20 20" width="19" height="19" aria-hidden="true">
+                            <circle cx="5.1" cy="8.6" r="5" fill="#f9e5b5" fill-opacity=".55"/>
+                            <path d="M6.9 9.4 L11.6 16.1" stroke="#f0c98a" stroke-width="1.3" stroke-linecap="round"/>
+                            <path d="M7.6 10.6 L15.8 15.9" stroke="#f0c98a" stroke-width="1.3" stroke-linecap="round"/>
+                            <circle cx="5" cy="2.7" r="1" fill="currentColor"/>
+                            <path d="M1.8 6.4 Q5 3.4 8.2 6.4 Z" fill="currentColor"/>
+                            <path d="M2.8 7.3 h4.4 L6.3 11.6 H3.7 Z" fill="#f9e5b5" stroke="currentColor" stroke-width="1.3" stroke-linejoin="round"/>
+                            <path d="M5 8 C5.6 8.8 5.9 9.2 5.9 9.7 a.9 .9 0 1 1 -1.8 0 C4.1 9.2 4.4 8.8 5 8 Z" fill="#eda63f"/>
+                            <rect x="3.2" y="11.9" width="3.6" height="1.1" rx=".55" fill="currentColor"/>
+                            <rect x="4.45" y="13" width="1.1" height="3.6" rx=".55" fill="currentColor"/>
+                            <rect x="1" y="16.6" width="18" height="1.4" rx=".7" fill="currentColor"/>
+                            <ellipse cx="12.6" cy="17.3" rx="4.8" ry="1" fill="#f9e5b5" fill-opacity=".6"/>
+                        </svg>
+                        <span class="cnt" id="cnt-services-on">–</span>
+                    </span>
+                </span>
+            </div>
+        </div>
+        <section id="nodes-tab" class="tab-content active-tab" role="tabpanel" aria-labelledby="tab-nodes">
+            <div id="nodes-view"></div>
+        </section>
+        <section id="services-tab" class="tab-content" role="tabpanel" aria-labelledby="tab-services">
+            <div id="services-list"></div>
+        </section>
+    </div>
+    <script>
+        // Four unified states shared with the CLI: up, down, confirming_up, confirming_down.
+        const STATUS_TEXT = { up: 'Awake', down: 'Asleep', confirming_up: 'Waking…', confirming_down: 'Powering down…' };
+        // A LUKS node answers pings once woken but sits at a passphrase prompt, so ssh - and the
+        // off lever - cannot reach it until someone unlocks it at the console. Wake-on is still valid.
+        const LUKS_TITLE = 'This node waits at a LUKS passphrase prompt after waking, so it can only be powered off from the console.';
+        // Each tab keeps its own remembered density: 'detailed' means every card
+        // expanded, 'compact' every card summarized (same stored values as ever, so
+        // old preferences carry straight over). Nodes default expanded (a control
+        // panel earns the detail), services collapsed.
+        const VIEW_KEYS = { nodes: 'allumeur:nodesView', services: 'allumeur:servicesView' };
+        const viewMode = {
+            nodes: localStorage.getItem(VIEW_KEYS.nodes) === 'compact' ? 'compact' : 'detailed',
+            services: localStorage.getItem(VIEW_KEYS.services) === 'detailed' ? 'detailed' : 'compact',
+        };
+        const LOADER = (t, cls = '') => `<div class="loading${cls}"><span class="ldots" aria-hidden="true"><i></i><i></i><i></i></span>${t}</div>`;
+        // Every configured field (names, subtitles, macs, ips, users) is operator-authored
+        // text, not markup: HTML-escape it at each ${…} site so a legitimate apostrophe or
+        // quote can't break attributes or controls. Handlers never carry data in inline JS
+        // strings - the lever reads its own dataset - so no double-escaping context exists.
+        const esc = v => String(v ?? '').replace(/[&<>"']/g, c => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;', "'": '&#39;' }[c]));
+        let nodesTimer = null;
+        let activeTab = 'nodes';
+        let lastUpdated = null;
+        let pollFailed = false;
+        let lastServices = null;
+        let lastNodes = null;
+        let svcOpen = {}; // per-service overrides on top of the mode's default
+        let nodeOpen = {}; // per-node unfolds in the compact switchboard, keyed by mac
+
+        // ── Allumeur mode: guests see only the favourites; the full roster exists
+        // behind the secret mark. Deliberately never persisted - every fresh visit
+        // opens as a guest, and the operator taps the lamp when they mean business.
+        // (Curation, not security: the LAN-only API always returns everything.)
+        let allumeurMode = false;
+        let modeAnimating = false; // the curtain is mid-drift; renders wait their turn
+        let modeTimer = null;
+        const deferredRender = { nodes: false, services: false };
+        // ── The shelf order (v10): node.order is a seat in ONE global sequence
+        // shared by nodes and standalone services; a matched service.order is its
+        // seat inside its node's group. Both tabs, and the TUI tables, read the
+        // very same ordering. Junk or tied orders fall back to name, stably.
+        const okey = o => { const v = +o; return (Number.isFinite(v) && v >= 1) ? v : Infinity; };
+        const byShelf = (a, b) => (okey(a.order) - okey(b.order)) || String(a.name).localeCompare(String(b.name));
+        const shelfSort = arr => arr.slice().sort(byShelf);
+        const visibleNodes = () => (lastNodes || []).filter(n => allumeurMode || n.favourite);
+        const visibleServices = () => (lastServices || []).filter(s => allumeurMode || s.favourite);
+        // The tallies always count the visible set - a guest's numbers add up to the
+        // rows a guest can see, and the mode flip moves them (with their usual beat).
+        function tallyNodes() { const v = visibleNodes(); const on = v.filter(n => n.status === 'up').length; setTabCounts('nodes', v.length - on, on); }
+        function tallyServices() { const v = visibleServices(); const on = v.filter(s => s.status === 'up').length; setTabCounts('services', v.length - on, on); }
+
+        // The masthead tally carries the fleet summary: unlit-glyph count · lit-glyph count,
+        // one pair per tab, only the active tab's pair on stage. Lit means confirmed up;
+        // everything else (down, waking, powering down) counts as unlit. The words live in
+        // the pair's title/aria-label so the numbers stay glanceable.
+        // The settle beat, numeral by numeral: a numeral is only rewritten - and only takes
+        // its little beat - when a poll actually moved its value (a wake settling in, a
+        // machine leaving the awake column). Every setTabCounts caller is poll-driven, so
+        // the beat stays a live-data signal; the very first fill lands still.
+        const countShown = {};
+        function setTabCounts(tab, off, on) {
+            [['off', off], ['on', on]].forEach(([kind, val]) => {
+                const id = `cnt-${tab}-${kind}`;
+                if (countShown[id] === val) return;
+                const first = !(id in countShown);
+                countShown[id] = val;
+                const el = document.getElementById(id);
+                el.textContent = val;
+                if (!first) { el.classList.remove('beat'); void el.offsetWidth; el.classList.add('beat'); }
+            });
+            const pair = document.getElementById('tally-' + tab);
+            const text = tab === 'nodes'
+                ? `Machines: ${off} asleep · ${on} awake`
+                : `Services: ${off} offline · ${on} online`;
+            pair.title = text;
+            pair.setAttribute('aria-label', text.replace(' · ', ', '));
+        }
+
+        // Shared bits of a node's markup so the card and the compact row agree exactly
+        // on lever state, lock treatment, and the LUKS notice.
+        function nodeLever(n) {
+            const settling = n.status === 'confirming_up' || n.status === 'confirming_down';
+            // While confirming, the lever sits in its assumed position (on for up-ish),
+            // grayed and locked until the network card confirms the real state.
+            const leverOn = n.status === 'up' || n.status === 'confirming_up';
+            // A LUKS node that is (or is becoming) up can be woken but never powered off
+            // remotely, so hold its on-lever fast with a lock instead of a live off action.
+            const locked = n.luks_blocked && leverOn && !settling;
+            const disabled = settling || locked;
+            const sliderCls = settling ? ' pending' : (locked ? ' locked' : '');
+            const lockTitle = locked ? ` title="${LUKS_TITLE}"` : '';
+            return `<label class="switch card-act"${lockTitle}>
+                <input type="checkbox" aria-label="Power ${esc(n.name)} on/off" data-mac="${esc(n.mac)}" data-ip="${esc(n.ip)}" data-user="${esc(n.user)}" onchange="toggleNode(this.dataset.mac, this.dataset.ip, this.dataset.user, this)" ${leverOn ? 'checked' : ''} ${disabled ? 'disabled aria-disabled="true"' : ''}>
+                <span class="slider${sliderCls}"></span>
+            </label>`;
+        }
+        const LUKS_BADGE = `<div class="card-luks" title="${LUKS_TITLE}"><svg viewBox="0 0 24 24" width="11" height="12" fill="currentColor" style="vertical-align:-1px;margin-right:4px" aria-hidden="true"><path d="M12 2a5 5 0 0 0-5 5v3H6a2 2 0 0 0-2 2v8a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2v-8a2 2 0 0 0-2-2h-1V7a5 5 0 0 0-5-5zm-3 8V7a3 3 0 0 1 6 0v3H9z"/></svg>LUKS - unlock at console to power off</div>`;
+        const nodeChip = (n) => `<span class="chip ${esc(n.status)}"><span class="dot ${esc(n.status)}"></span>${esc(STATUS_TEXT[n.status] || n.status)}</span>`;
+        // The one card header's unfold arrow, shared by both tabs.
+        const CHEV = `<svg class="chev" viewBox="0 0 24 24" width="16" height="16" fill="none" stroke="currentColor" stroke-width="2.4" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M6 9l6 6 6-6"/></svg>`;
+        // ── Pretty names (v11): pretty is the guest-facing display name; guests see
+        // pretty||name, allumeur mode the real name. Every name slot renders BOTH
+        // spellings stacked in one cell and body.showpretty crossfades between them
+        // (so the mode flip carries the swap with zero re-render); a slot without a
+        // distinct pretty stays a single plain span. Tooltips carry the other name.
+        const nmSpans = (name, pretty) => {
+            if (!pretty || pretty === name) return `<span class="nm" title="${esc(name)}">${esc(name)}</span>`;
+            return `<span class="nm nm-g" title="${esc(pretty + ' - ' + name)}">${esc(pretty)}</span><span class="nm nm-a" title="${esc(name + ' - ' + pretty)}">${esc(name)}</span>`;
+        };
+        // The mode-current display name, for flat text (aria-labels, link titles)
+        // that re-bakes on every render anyway.
+        const dispName = x => (!allumeurMode && x.pretty) ? x.pretty : x.name;
+        // A card is open if its own arrow was used, else it follows the tab's density.
+        const nodeIsOpen = n => (n.mac in nodeOpen) ? nodeOpen[n.mac] : viewMode.nodes === 'detailed';
+
+        async function loadNodes(silent = false) {
+            if (nodesTimer) { clearTimeout(nodesTimer); nodesTimer = null; }
+            const view = document.getElementById('nodes-view');
+            if (!silent) view.innerHTML = LOADER('Finding your nodes…', ' carded');
+            try {
+                const res = await fetch('/api/nodes');
+                const fresh = await res.json();
+                // Live-data choreography: diff this poll against the previous payload and
+                // note which machines actually settled. Only these observed transitions
+                // may bloom or dim - never a click, never the optimistic pending flip.
+                const settles = diffSettles(fresh);
+                lastNodes = shelfSort(fresh);
+                // With the services tab off stage its trays can't glide; keep their
+                // sleep ledger current so returning shows the settled truth, not a replay.
+                if (activeTab !== 'services') fresh.forEach(n => { hostDim[n.mac] = isAsleep(n); });
+                renderNodes(silent);
+                markUpdated();
+                choreograph(settles);
+                // Keep watching (silently) only while something is mid-transition.
+                if (lastNodes.some(n => n.status === 'confirming_up' || n.status === 'confirming_down')) {
+                    nodesTimer = setTimeout(() => loadNodes(true), 2000);
+                }
+            } catch (e) {
+                // Stale-data grace: with a list already in hand, keep it on screen under the
+                // deeper-pink retrying label rather than wiping it; the card is for a bare first load.
+                if (lastNodes) renderNodes(true);
+                else view.innerHTML = '<div class="loading err carded">Couldn\'t reach the nodes API - retrying on the next refresh.</div>';
+                markFailed();
+            }
+        }
+        function renderNodes(silent = false) {
+            if (modeAnimating) { deferredRender.nodes = true; return; }
+            const view = document.getElementById('nodes-view');
+            const nodes = lastNodes || [];
+            // Every node is rendered; non-favourites carry .nf and the body's guest
+            // class curtains them off. The enter stagger counts visible items only,
+            // so a guest's grid still lands on an unbroken rhythm.
+            let vi = 0;
+            view.innerHTML = `<div class="grid">` + nodes.map((n, i) => {
+                const open = nodeIsOpen(n);
+                const shown = allumeurMode || n.favourite;
+                // Only animate on a visible (re)load, never on the silent settle re-polls.
+                const enter = (silent || !shown) ? '' : ` enter" style="animation-delay:${vi++ * 40}ms`;
+                return `
+                <article data-mac="${esc(n.mac)}" class="card${open ? ' open' : ''}${n.favourite ? '' : ' nf'}${enter}">
+                    <div class="card-head">
+                        <button type="button" class="card-toggle" aria-expanded="${open}" aria-controls="nodeb-${i}" onclick="toggleNodeCard(${i}, this)">
+                            <span class="dot ${esc(n.status)}" role="img" aria-label="${esc(STATUS_TEXT[n.status] || n.status)}"></span>
+                            <span class="card-name">${nmSpans(n.name, n.pretty)}</span>
+                            ${CHEV}
+                        </button>
+                        ${nodeLever(n)}
+                    </div>
+                    <div class="fold-body" id="nodeb-${i}"${open ? ' style="max-height:none"' : ''}>
+                        <div class="card-body">
+                            ${n.subtitle ? `<div class="card-desc">${esc(n.subtitle)}</div>` : ''}
+                            <div class="card-meta">${nodeChip(n)}<span class="card-ip">${esc(n.ip)}</span></div>
+                            ${n.luks_blocked ? LUKS_BADGE : ''}
+                        </div>
+                    </div>
+                </article>`;
+            }).join('') + `</div>`;
+            if (!nodes.length) view.innerHTML = '<div class="loading carded">No machines configured yet.</div>';
+            // Nothing on the guest's side of the curtain: say so, gently.
+            else if (!nodes.some(n => n.favourite)) view.insertAdjacentHTML('beforeend', '<div class="loading carded nf-empty">Nothing on show right now.</div>');
+            tallyNodes();
+            castShadows();
+        }
+
+        // ── Lamp-cast shadows: the brand-mark lamp scrolls with the document, so the
+        // lamp→card vector is settled the moment a card lands in layout. Each render
+        // writes two static custom properties per card - the resting and hover
+        // box-shadows - angled away from the top-left lamp: near cards keep tighter,
+        // warmer-tinted shade; far cards stretch longer, softer and cooler into pink.
+        // Nothing here runs on scroll or on a clock; the canvas's existing resize
+        // handler re-aims via window.__castShadows when the layout itself moves.
+        function castShadows() {
+            const m = document.querySelector('.brand-mark'); if (!m) return;
+            const mb = m.getBoundingClientRect();
+            if (!mb.width) return;
+            const lx = mb.left + mb.width / 2 + window.scrollX;
+            const ly = mb.top + mb.height / 2 + window.scrollY;
+            const lerp = (a, b, t) => a + (b - a) * t;
+            document.querySelectorAll('.card, .host-card, .loading.carded').forEach(el => {
+                const b = el.getBoundingClientRect();
+                if (!b.width) return; // a hidden tab's cards keep their last cast
+                const dx = b.left + b.width / 2 + window.scrollX - lx;
+                const dy = b.top + b.height / 2 + window.scrollY - ly;
+                const d = Math.hypot(dx, dy) || 1;
+                const t = Math.min(d / 1400, 1); // 0 beside the lamp, 1 across the page
+                const off = lerp(7, 17, t);
+                const ox = (dx / d) * off, oy = Math.max(dy / d, .35) * off + 1;
+                const blur = Math.round(lerp(24, 36, t));
+                const col = `rgba(${Math.round(lerp(236, 244, t))},${Math.round(lerp(168, 143, t))},${Math.round(lerp(122, 177, t))},${lerp(.5, .38, t).toFixed(2)})`;
+                el.style.setProperty('--cast', `${ox.toFixed(1)}px ${oy.toFixed(1)}px ${blur}px -16px ${col}`);
+                el.style.setProperty('--cast-lift', `${(ox * 1.3).toFixed(1)}px ${(oy * 1.3 + 3).toFixed(1)}px ${blur + 8}px -16px ${col}`);
+            });
+        }
+        window.__castShadows = castShadows;
+        // The observed-settle diff both pollers share: compare a fresh nodes payload
+        // against the previous one and report which machines actually finished a
+        // transition. Only these earn a bloom, a dim, or a lamplighter's strike.
+        function diffSettles(fresh) {
+            const settles = [];
+            if (lastNodes) {
+                const prev = {};
+                lastNodes.forEach(n => { prev[n.mac] = n.status; });
+                fresh.forEach(n => {
+                    if (prev[n.mac] === 'confirming_up' && n.status === 'up') settles.push({ mac: n.mac, cls: 'just-woke' });
+                    else if (prev[n.mac] === 'confirming_down' && n.status === 'down') settles.push({ mac: n.mac, cls: 'just-slept' });
+                });
+            }
+            return settles;
+        }
+        // Fire the one-shot settle animations on the freshly rendered card/row for each
+        // observed transition. (The tally numerals keep their own beat inside
+        // setTabCounts, tied to the exact poll that moved each value.) The classes carry
+        // `both`-filled one-shot keyframes, and the next render (which rebuilds the
+        // markup anyway) clears them - nothing loops, nothing is timed locally.
+        function choreograph(settles) {
+            settles.forEach(s => {
+                // A machine the current viewer can't see settles in silence: no bloom
+                // on a curtained row, and no tell-tale strike in guest view.
+                const n = (lastNodes || []).find(x => x.mac === s.mac);
+                if (n && !allumeurMode && !n.favourite) return;
+                const el = document.querySelector(`#nodes-view [data-mac="${CSS.escape(s.mac)}"]`);
+                if (el) el.classList.add(s.cls);
+                strikeLamp(s.cls === 'just-woke' ? 'on' : 'off');
+            });
+        }
+
+        // ── The strike queue: the allumeur is calm; he never spams. Each observed
+        // settle asks him for one action - lamp flaring up for a wake, banking down
+        // for a sleep - and a mode flip is its own action kind (mode-on carries the
+        // long held glow, mode-off the soft banking strike). Actions play strictly
+        // one at a time. While one plays, new requests wait, and waiting requests
+        // coalesce by kind: a dozen machines waking during one strike still earn
+        // exactly one more "on" strike, drained in arrival order. No clocks of our
+        // own: the animation's own end event (bubbling to the mark's inline
+        // onanimationend) hands the queue forward - under reduced motion the
+        // collapsed beat still ends, so it drains the same.
+        const lampQueue = { busy: false, order: [], pending: { on: false, off: false, 'mode-on': false, 'mode-off': false } };
+        function strikeLamp(kind) {
+            if (lampQueue.busy) {
+                if (!lampQueue.pending[kind]) { lampQueue.pending[kind] = true; lampQueue.order.push(kind); }
+                return;
+            }
+            playStrike(kind);
+        }
+        function playStrike(kind) {
+            lampQueue.busy = true;
+            const mark = document.querySelector('.brand-mark');
+            mark.classList.remove('act', 'act-on', 'act-off');
+            // The held glow belongs to allumeur mode, not to any one strike: a settle strike
+            // arriving inside its 3.8s life must play OVER it, not snuff it. Only the mode's
+            // own transitions restart or release it.
+            if (kind === 'mode-on' || kind === 'mode-off') mark.classList.remove('held');
+            void mark.offsetWidth; // restart cleanly even back-to-back
+            const up = kind === 'on' || kind === 'mode-on';
+            mark.classList.add('act', up ? 'act-on' : 'act-off');
+            // Entering allumeur mode earns the long warm exhale on top of the strike.
+            if (kind === 'mode-on') mark.classList.add('held');
+            // A settle's strike reaches the whole page - bloom for a wake, a soft
+            // dim for a sleep - anchored at the mark and synced to this same beat.
+            // Settles only (the mode flip keeps its own held glow), and reduced
+            // motion skips the veil entirely.
+            if (kind === 'on' || kind === 'off') strikePageLight(mark, up);
+        }
+        function strikePageLight(mark, up) {
+            if (window.matchMedia('(prefers-reduced-motion: reduce)').matches) return;
+            const pl = document.getElementById('page-light'); if (!pl) return;
+            const b = mark.getBoundingClientRect();
+            pl.style.setProperty('--strike-x', Math.round(b.left + b.width / 2) + 'px');
+            pl.style.setProperty('--strike-y', Math.round(b.top + b.height / 2) + 'px');
+            pl.classList.remove('lit', 'dimmed'); void pl.offsetWidth; // restart cleanly back-to-back
+            pl.classList.add(up ? 'lit' : 'dimmed');
+        }
+        function lampActionEnd(e) {
+            const mark = document.querySelector('.brand-mark');
+            // The held glow outlives its strike; its own end tidies the class away.
+            if (e.animationName === 'heldGlow') { mark.classList.remove('held'); return; }
+            // Several keyframes end per action; the pose swap is the beat's one marker.
+            if (e.animationName !== 'alStrike') return;
+            mark.classList.remove('act', 'act-on', 'act-off');
+            lampQueue.busy = false;
+            const next = lampQueue.order.shift();
+            if (next) { lampQueue.pending[next] = false; playStrike(next); }
+        }
+
+        // ── The secret toggle: touching the mark flips allumeur mode. The flip is
+        // one of the allumeur's own errands - it queues a strike like any settle -
+        // while the curtained rows/cards drift in (or out) on a slow, calm stagger.
+        function toggleAllumeurMode() {
+            allumeurMode = !allumeurMode;
+            const mark = document.querySelector('.brand-mark');
+            mark.setAttribute('aria-pressed', String(allumeurMode));
+            // Names flip with the mode itself, not with the curtain's settle: the
+            // pretty⇄real crossfade starts on the same beat as the mark's strike.
+            document.body.classList.toggle('showpretty', !allumeurMode);
+            strikeLamp(allumeurMode ? 'mode-on' : 'mode-off');
+            if (modeTimer) clearTimeout(modeTimer);
+            // Revealing: lift the curtain first (same task as the measurements below,
+            // so nothing flashes), then drift each hidden item in. Concealing drifts
+            // them out and only then lets display:none fall. Neighbours whose seat
+            // shifts when rows return glide there (FLIP) instead of teleporting.
+            const seats = captureSeats();
+            if (allumeurMode) document.body.classList.remove('guest');
+            if (lastNodes) tallyNodes();
+            if (lastServices) tallyServices();
+            glideSeats(seats);
+            // Under reduced motion every drift collapses to .001ms anyway, so the
+            // stagger timers would only strand invisible cards in their grid slots
+            // for a second - land the whole curtain in the same beat instead.
+            if (window.matchMedia('(prefers-reduced-motion: reduce)').matches) { finishModeFlip(); return; }
+            modeAnimating = true;
+            const wait = driftHidden(allumeurMode);
+            modeTimer = setTimeout(finishModeFlip, wait + 60);
+        }
+        // ── FLIP for the curtain's neighbours: when hidden rows return or leave,
+        // the cards that merely change seat glide there instead of teleporting.
+        // Seats are captured before the class flip and replayed as a settling
+        // translate via WAAPI - which never touches the trays' own width ease.
+        function captureSeats() {
+            // Tray-seated unit cards are captured too: when the curtain moves a
+            // tray's unit set (fav-only ⇄ all), the survivors inside change grid
+            // seat and must glide there like everyone else - never teleport.
+            const m = new Map();
+            document.querySelectorAll('.tab-content.active-tab .shelf > *, .tab-content.active-tab .grid > .card, .tab-content.active-tab .host-grid > .card').forEach(el => {
+                const r = el.getBoundingClientRect(); if (r.width) m.set(el, r);
+            });
+            return m;
+        }
+        function glideSeats(seats) {
+            if (window.matchMedia('(prefers-reduced-motion: reduce)').matches) return;
+            // FLIP, reads before writes: measure every survivor's travel first,
+            // then play the inverted transforms (compositor-only) in one batch.
+            // Park the trays' .45s width ease for the measuring frame (the same
+            // lever live drags and rebuilds pull) so the seats we read are the
+            // FINAL ones. Unparked, the ease is still on its first frame here:
+            // a tray's new width has not landed, so a card's horizontal travel
+            // reads as ~0 and gets left to the width reflow while its already-
+            // reflowed vertical travel is FLIPped - two mechanisms of different
+            // length pulling one card, which bows its path off the straight line.
+            // Parked, dx and dy are both true and the FLIP owns the whole journey.
+            const parked = document.body.classList.contains('resizing');
+            if (!parked) document.body.classList.add('resizing');
+            const raw = new Map();
+            seats.forEach((r0, el) => {
+                if (!el.isConnected || el.closest('.nf-in, .nf-out')) return;
+                const r1 = el.getBoundingClientRect(); if (!r1.width) return;
+                raw.set(el, { dx: r0.left - r1.left, dy: r0.top - r1.top });
+            });
+            // Commit those settled widths as the resting state while the ease is
+            // still parked (so handing the lever back starts no second animation),
+            // then let go - unless a live drag owns it, which frees it on its timer.
+            if (!parked) { void document.body.offsetWidth; document.body.classList.remove('resizing'); }
+            // Document order guarantees a tray is decided before its cards: a card
+            // seated in a gliding tray already rides the tray's transform, so it
+            // plays only its travel BEYOND the tray's - same duration and easing,
+            // so the pair always sums to the card's true journey (and a card that
+            // shouldn't move counter-glides its tray exactly).
+            const plays = new Map();
+            raw.forEach((d, el) => {
+                let dx = d.dx, dy = d.dy;
+                const tray = el.parentElement && el.parentElement.closest('.host-card');
+                const ride = tray ? plays.get(tray) : null;
+                if (ride) { dx -= ride.dx; dy -= ride.dy; }
+                if (Math.abs(dx) < 1 && Math.abs(dy) < 1) return;
+                plays.set(el, { dx, dy });
+                el.animate([{ transform: `translate(${dx}px, ${dy}px)` }, { transform: 'translate(0, 0)' }],
+                    { duration: 500, easing: 'cubic-bezier(.22,.61,.36,1)' });
+            });
+        }
+        // Drift every curtained card toward shown/hidden with a languid stagger.
+        // Returns how long the whole drift takes, for the single cleanup timer.
+        function driftHidden(showing) {
+            let k = 0, total = 0;
+            // Only the tab on stage drifts: the other tab is display:none, so its
+            // cards need no choreography (finishModeFlip's guest class still curtains
+            // them), and letting them consume stagger beats would open the visible
+            // tab on dead air - its first card waiting out invisible delays.
+            document.querySelectorAll('.tab-content.active-tab .nf').forEach(el => {
+                // A curtained card seated inside a curtained tray rides its tray's
+                // drift - animating both would double the movement.
+                if (!el.classList.contains('host-card') && el.closest('.host-card.nf')) return;
+                const delay = k * (showing ? 150 : 110);
+                el.classList.remove('nf-in', 'nf-out');
+                void el.offsetWidth;
+                el.style.animationDelay = delay + 'ms';
+                el.classList.add(showing ? 'nf-in' : 'nf-out');
+                total = Math.max(total, delay + (showing ? 1100 : 850));
+                k++;
+            });
+            return total;
+        }
+        function finishModeFlip() {
+            modeTimer = null;
+            const seats = captureSeats();
+            document.body.classList.toggle('guest', !allumeurMode);
+            document.querySelectorAll('.nf-in, .nf-out').forEach(el => {
+                el.classList.remove('nf-in', 'nf-out');
+                el.style.animationDelay = '';
+            });
+            modeAnimating = false;
+            // Flush any poll that arrived while the curtain was moving.
+            if (deferredRender.nodes) { deferredRender.nodes = false; if (lastNodes) renderNodes(true); }
+            if (deferredRender.services) { deferredRender.services = false; if (lastServices) renderServices(true); }
+            castShadows(); // aim the lamp-cast at whatever just became visible
+            glideSeats(seats); // …and let re-seated neighbours settle, not snap
+        }
+        function toggleNodeCard(i, btn) {
+            const n = (lastNodes || [])[i]; if (!n) return;
+            const card = btn.closest('.card');
+            const open = !card.classList.contains('open');
+            nodeOpen[n.mac] = open;
+            card.classList.toggle('open', open);
+            btn.setAttribute('aria-expanded', open);
+            animateFold(card, open);
+        }
+        async function toggleNode(mac, ip, user, checkbox) {
+            checkbox.disabled = true;
+            const state = checkbox.checked ? 'on' : 'off';
+            // Optimistically show the pending look right away.
+            const slider = checkbox.nextElementSibling; if (slider) slider.classList.add('pending');
+            try {
+                await fetch('/api/nodes/toggle', { method: 'POST', headers: {'Content-Type': 'application/json'}, body: JSON.stringify({ mac, ip, user, state }) });
+            } finally {
+                // Pick up the confirming_* state (or restore the truth if the POST failed);
+                // loadNodes then self-schedules until it settles.
+                setTimeout(() => loadNodes(true), 700);
+            }
+        }
+
+        // ── Services: unit cards seated under their host machine's tray ────────
+        function svcKey(s) { return s.ip + ':' + s.port; }
+        function svcIsOpen(s) { const k = svcKey(s); return (k in svcOpen) ? svcOpen[k] : (viewMode.services === 'detailed'); }
+        // One unit card - the approved anatomy: LED · name · go-link · arrow, the
+        // description over the address inside the fold. The same card serves
+        // inside a tray and standing alone on the shelf.
+        function svcCardHTML(s, idx, extraCls, enterGlue) {
+            const open = svcIsOpen(s);
+            const url = `http://${s.ip}:${s.port}`;
+            return `
+                <article class="card svc-card${extraCls}${open ? ' open' : ''}${s.favourite ? '' : ' nf'}${enterGlue}">
+                    <div class="card-head">
+                        <button type="button" class="card-toggle" aria-expanded="${open}" aria-controls="svcb-${idx}" onclick="toggleSvc(${idx}, this)">
+                            <span class="dot ${esc(s.status)}" role="img" aria-label="${s.status === 'up' ? 'Online' : 'Offline'}"></span>
+                            <span class="card-name">${nmSpans(s.name, s.pretty)}</span>
+                            ${CHEV}
+                        </button>
+                        <a class="card-go card-act" href="${esc(url)}" target="_blank" rel="noopener" title="Open ${esc(dispName(s))}" aria-label="Open ${esc(dispName(s))} at ${esc(s.ip)}:${esc(s.port)}"><svg viewBox="0 0 24 24" width="14" height="14" fill="none" stroke="currentColor" stroke-width="2.4" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M7 17L17 7M9 7h8v8"/></svg></a>
+                    </div>
+                    <div class="fold-body" id="svcb-${idx}"${open ? ' style="max-height:none"' : ''}>
+                        <div class="card-body">
+                            ${s.subtitle ? `<div class="card-desc">${esc(s.subtitle)}</div>` : ''}
+                            <a class="card-addr" href="${esc(url)}" target="_blank" rel="noopener" title="Open ${esc(dispName(s))} - opens in a new tab">${esc('http://' + s.ip)}<wbr>${esc(':' + s.port)}</a>
+                        </div>
+                    </div>
+                </article>`;
+        }
+        let svcTimer = null;
+        async function loadServices(silent = false) {
+            if (svcTimer) { clearTimeout(svcTimer); svcTimer = null; }
+            const list = document.getElementById('services-list');
+            if (!silent) list.innerHTML = LOADER('Checking on the services…', ' carded');
+            try {
+                // The shelf needs both blobs: services for the cards, nodes for the
+                // grouping, the tray headers and the live down-dimming.
+                const [sres, nres] = await Promise.all([fetch('/api/services'), fetch('/api/nodes')]);
+                const svcs = await sres.json(); const nodes = await nres.json();
+                const settles = diffSettles(nodes);
+                lastNodes = shelfSort(nodes);
+                lastServices = shelfSort(svcs);
+                renderServices(silent);
+                markUpdated();
+                choreograph(settles);
+                // Keep watching (silently) while a host is mid-transition, so a tray
+                // dims or wakes promptly even though the levers live on the other tab.
+                // Only while this tab is on stage - the nodes tab has its own watcher.
+                if (activeTab === 'services' && lastNodes.some(n => n.status === 'confirming_up' || n.status === 'confirming_down')) {
+                    svcTimer = setTimeout(() => loadServices(true), 2000);
+                }
+            } catch (e) {
+                // Same stale-data grace as the nodes tab: never trade a good list for an error card.
+                if (lastServices) renderServices(true);
+                else list.innerHTML = '<div class="loading err carded">Couldn\'t reach the services API - retrying on the next refresh.</div>';
+                markFailed();
+            }
+        }
+        // Trays remember their last-seen sleep state, so a rebuild can tell a real
+        // dim/undim (play the glide) from mere re-rendering (land it still).
+        const hostDim = {};
+        // The shelf's computed geometry survives rebuilds: relayout records the
+        // unit width and row count here, and the next render's markup carries
+        // them inline (--unit on the shelf, pre-clamped --hu on the trays). The
+        // fresh DOM's very first layout therefore stands at the true widths -
+        // no 240px-default flash, no width ease replaying on every silent poll,
+        // no neighbours hopping rows while the page just sits there.
+        let shelfUnit = null, shelfCols = null;
+        const isAsleep = n => n.status === 'down' || n.status === 'confirming_down';
+        function renderServices(silent = false) {
+            if (modeAnimating) { deferredRender.services = true; return; }
+            const list = document.getElementById('services-list');
+            const services = lastServices || [];
+            if (!services.length) { list.innerHTML = '<div class="loading carded">No services configured yet.</div>'; tallyServices(); castShadows(); return; }
+            // Grouping is exact string equality: a service belongs to the node whose
+            // ip field matches its address as stored (fqdn or ip alike); everything
+            // else stands alone on the shelf at its own seat.
+            const byIp = new Map((lastNodes || []).map(n => [n.ip, n]));
+            const groups = new Map(); const blocks = [];
+            services.forEach((s, idx) => {
+                const n = byIp.get(s.ip);
+                if (!n) { blocks.push({ order: s.order, name: s.name, s, idx }); return; }
+                if (!groups.has(n.ip)) { const g = { order: n.order, name: n.name, node: n, kids: [] }; groups.set(n.ip, g); blocks.push(g); }
+                groups.get(n.ip).kids.push({ s, idx });
+            });
+            blocks.sort(byShelf); // groups sit at their node's shelf seat, standalones at their own
+            let vi = 0; // visible-only enter stagger, block by block
+            const clampU = k => shelfCols ? Math.min(k, shelfCols) : k;
+            // Rebuilds park the width ease (the same lever live drags pull):
+            // whatever widths the fresh DOM's first layout computes must land,
+            // never glide. The .45s ease stays reserved for real mode flips and
+            // unit-count changes, as promised at the .host-card rule.
+            const parked = document.body.classList.contains('resizing');
+            if (!parked) document.body.classList.add('resizing');
+            list.innerHTML = `<div class="shelf" id="shelf"${shelfUnit ? ` style="--unit:${shelfUnit}px"` : ''}>` + blocks.map(b => {
+                if (!b.node) {
+                    const shown = allumeurMode || b.s.favourite;
+                    const enter = (silent || !shown) ? '' : ` enter" style="animation-delay:${vi++ * 55}ms`;
+                    return svcCardHTML(b.s, b.idx, ' solo', enter);
+                }
+                const n = b.node;
+                b.kids.sort((x, y) => byShelf(x.s, y.s)); // intra order: the group's own 1..k
+                const kAll = b.kids.length, kFav = b.kids.filter(k => k.s.favourite).length;
+                const asleep = isAsleep(n);
+                const prev = hostDim[n.mac]; hostDim[n.mac] = asleep;
+                const dimCls = (prev !== undefined && prev !== asleep) ? (asleep ? ' just-dimmed' : ' just-undimmed') : '';
+                const entering = !silent && (allumeurMode || kFav > 0);
+                const cls = `host-card${asleep ? ' asleep' : ''}${dimCls}${kFav ? '' : ' nf'}${entering ? ' enter' : ''}`;
+                const style = `--hu-all:${clampU(kAll)};--hu-fav:${clampU(Math.max(kFav, 1))}${entering ? `;animation-delay:${vi++ * 55}ms` : ''}`;
+                const count = k => `${k} service${k === 1 ? '' : 's'}`;
+                return `
+                <section class="${cls}" style="${style}" data-mac="${esc(n.mac)}" data-kall="${kAll}" data-kfav="${Math.max(kFav, 1)}" aria-label="Services on ${esc(dispName(n))}">
+                    <div class="host-head">
+                        <span class="dot ${esc(n.status)}" role="img" aria-label="${esc(STATUS_TEXT[n.status] || n.status)}"></span>
+                        <span class="host-name">${nmSpans(n.name, n.pretty)}</span>
+                        <span class="host-count"><span class="ct-all">${count(kAll)}</span><span class="ct-fav">${count(kFav)}</span></span>
+                    </div>
+                    <div class="host-grid">${b.kids.map(k => svcCardHTML(k.s, k.idx, '', '')).join('')}</div>
+                </section>`;
+            }).join('') + `</div>`;
+            // Nothing on the guest's side of the curtain: say so, gently.
+            if (!services.some(s => s.favourite)) list.insertAdjacentHTML('beforeend', '<div class="loading carded nf-empty">Nothing on show right now.</div>');
+            relayout();
+            // Commit the freshly-written widths as the resting state while the
+            // ease is still parked, then hand the lever back (unless a live
+            // drag owns it - its own timer will let go).
+            if (!parked) { void list.offsetWidth; document.body.classList.remove('resizing'); }
+            tallyServices();
+            castShadows();
+        }
+        // ── The inside-out fill: from the shelf's width pick U, the row's unit
+        // count; size the unit so a full tray row lands flush (two tray chromes
+        // reserved so a tray-plus-tray row still fits); clamp every tray to
+        // min(its services, U) units. All of it lands in CSS vars - the flexbox
+        // and the tray grids do the actual laying-out.
+        // The unit floor is set by what a unit must seat: the header's fixed
+        // furniture (21px pad + 12px lamp + 12px gap + the 77px action/arrow
+        // lane ≈ 122px) plus a name budget of ≈ 122px, enough to seat a
+        // "Queue Series!"-length service name (and "Shiny Album! ★") unclipped
+        // -> 244, so those ride whole at every column count the floor admits
+        // and only a genuinely longer name takes the one-line ellipsis. Narrow
+        // screens are untouched: below two columns the unit is the shelf
+        // itself, exactly as before.
+        const SHELF = { gap: 13, chrome: 22, umin: 244 };
+        function relayout() {
+            const shelf = document.getElementById('shelf');
+            if (!shelf) return;
+            const W = shelf.clientWidth;
+            if (!W) return; // hidden tab: re-measured on its next visible render
+            const U = Math.max(1, Math.floor((W - 2 * SHELF.chrome + SHELF.gap) / (SHELF.umin + SHELF.gap)));
+            const u = (W - (U - 1) * SHELF.gap - 2 * SHELF.chrome) / U;
+            shelfUnit = +u.toFixed(2); shelfCols = U; // remembered for the next rebuild's inline geometry
+            shelf.style.setProperty('--unit', shelfUnit + 'px');
+            shelf.querySelectorAll('.host-card').forEach(h => {
+                h.style.setProperty('--hu-all', Math.min(+h.dataset.kall || 1, U));
+                h.style.setProperty('--hu-fav', Math.min(+h.dataset.kfav || 1, U));
+            });
+        }
+        window.__relayout = relayout;
+        // Live window drags reflow instantly - a short-lived body class parks the
+        // trays' width ease so nothing chases the cursor. (Registered before the
+        // canvas's own resize listener, which re-aims the lamp-cast after us.)
+        let resizeStill = null;
+        window.addEventListener('resize', () => {
+            document.body.classList.add('resizing');
+            relayout();
+            clearTimeout(resizeStill);
+            resizeStill = setTimeout(() => document.body.classList.remove('resizing'), 180);
+        });
+        // Animate the body's real travel: measure scrollHeight and transition to/from it, so
+        // the ease is felt across the actual distance in both directions (no fixed cap).
+        function animateFold(card, open) {
+            const body = card.querySelector('.fold-body'); if (!body) return;
+            if (open) {
+                body.style.maxHeight = body.scrollHeight + 'px';
+            } else {
+                body.style.maxHeight = body.scrollHeight + 'px'; // pin from 'none' to a real px start
+                void body.offsetHeight; // flush so the walk back to 0 actually transitions
+                body.style.maxHeight = '0px';
+            }
+        }
+        function toggleSvc(i, btn) {
+            const s = (lastServices || [])[i]; if (!s) return;
+            const card = btn.closest('.card');
+            const open = !card.classList.contains('open');
+            svcOpen[svcKey(s)] = open;
+            card.classList.toggle('open', open);
+            btn.setAttribute('aria-expanded', open);
+            animateFold(card, open);
+        }
+        // The masthead pill is expand-all / collapse-all for whichever tab is on
+        // stage; each tab remembers its own. Both tabs share the one card language
+        // now, so neither re-renders - every card just folds toward the new default.
+        function setViewMode(mode) {
+            mode = mode === 'detailed' ? 'detailed' : 'compact';
+            viewMode[activeTab] = mode;
+            localStorage.setItem(VIEW_KEYS[activeTab], mode);
+            syncModeButtons();
+            if (activeTab === 'services') svcOpen = {}; else nodeOpen = {};
+            const open = mode === 'detailed';
+            const root = activeTab === 'services' ? '#services-list' : '#nodes-view';
+            document.querySelectorAll(root + ' .card').forEach(card => {
+                const changed = card.classList.contains('open') !== open;
+                card.classList.toggle('open', open);
+                const b = card.querySelector('.card-toggle');
+                if (b) b.setAttribute('aria-expanded', open);
+                if (changed) animateFold(card, open);
+            });
+            // On desk widths a density flip can re-width the name-hugging cards
+            // (and every fold re-heights); re-aim the lamp-cast once the .38s
+            // folds have landed so no card keeps a shadow cast at its old seat.
+            setTimeout(castShadows, 460);
+        }
+        function syncModeButtons() {
+            ['compact', 'detailed'].forEach(m => {
+                const b = document.getElementById('vm-' + m);
+                b.classList.toggle('active', viewMode[activeTab] === m);
+                b.setAttribute('aria-pressed', viewMode[activeTab] === m);
+            });
+            // Desk widths size a summarized node card to its name alone: the CSS
+            // width-contains the fold while the tab's density is compact, and this
+            // mirror is how it knows. (Runs at boot, on tab switches and on every
+            // density change - the same beats the pill itself repaints on.)
+            document.getElementById('nodes-view').classList.toggle('vm-compact', viewMode.nodes === 'compact');
+        }
+
+        function switchTab(tab) {
+            activeTab = tab;
+            document.querySelectorAll('.tab-content').forEach(c => c.classList.remove('active-tab'));
+            document.querySelectorAll('.seg-btn').forEach(b => { b.classList.remove('active'); b.setAttribute('aria-selected', 'false'); });
+            document.getElementById(tab + '-tab').classList.add('active-tab');
+            const btn = document.getElementById('tab-' + tab);
+            btn.classList.add('active'); btn.setAttribute('aria-selected', 'true');
+            document.getElementById('seg').classList.toggle('svc', tab === 'services');
+            // The tally follows the stage: only the active tab's off·on pair is shown
+            // (the display flip replays the little rise-in on the incoming pair).
+            document.getElementById('tally-nodes').hidden = tab !== 'nodes';
+            document.getElementById('tally-services').hidden = tab !== 'services';
+            syncModeButtons();
+            // With data already in hand, show it instantly and freshen silently in the
+            // background; the loader is reserved for a genuinely empty first visit.
+            if (tab === 'nodes') {
+                if (lastNodes) { renderNodes(true); loadNodes(true); } else loadNodes();
+            } else {
+                if (lastServices) { renderServices(true); loadServices(true); } else loadServices();
+            }
+        }
+
+        // ── Freshness: show how recent the data is, refresh the visible tab, offer a manual poke ──
+        function markUpdated() {
+            lastUpdated = Date.now(); pollFailed = false;
+            // A fresh success also lets the tally counts speak plainly again.
+            document.getElementById('tally').classList.remove('stale');
+            renderFreshness();
+        }
+        function markFailed() {
+            pollFailed = true;
+            // Confident tally counts would contradict the retrying label beside them - dim
+            // them until the next good poll.
+            document.getElementById('tally').classList.add('stale');
+            renderFreshness();
+        }
+        // The bar keeps freshness terse; the full sentence lives in the label's tooltip.
+        function renderFreshness() {
+            const el = document.getElementById('updated');
+            if (!el) return;
+            el.classList.toggle('stale', pollFailed);
+            const s = lastUpdated ? Math.round((Date.now() - lastUpdated) / 1000) : null;
+            const ago = s === null ? null : (s < 90 ? `${s}s ago` : `${Math.round(s / 60)}m ago`);
+            if (pollFailed) {
+                el.textContent = 'retrying…';
+                el.title = ago ? `Couldn't reach the API - last good update ${ago}` : `Couldn't reach the API - no update yet`;
+                return;
+            }
+            if (s === null) { el.textContent = 'updating…'; el.title = 'Waiting for the first update'; return; }
+            el.textContent = s < 5 ? 'just now' : ago;
+            el.title = `Data updated ${s < 5 ? 'just now' : ago}`;
+        }
+        function refreshActive(btn) {
+            if (btn) { btn.classList.remove('spinning'); void btn.offsetWidth; btn.classList.add('spinning'); setTimeout(() => btn.classList.remove('spinning'), 700); }
+            activeTab === 'nodes' ? loadNodes(true) : loadServices(true);
+        }
+        setInterval(renderFreshness, 1000);
+        // Gentle background refresh so a settled dashboard doesn't drift stale; the faster
+        // confirming re-poll owns the nodes tab while something is mid-transition.
+        setInterval(() => {
+            if (activeTab === 'nodes') { if (!nodesTimer) loadNodes(true); }
+            else loadServices(true);
+        }, 20000);
+
+        // Once an unfold lands, relax the pinned px to 'none' so open cards reflow freely.
+        // Delegated from the document so both tabs' fold bodies share it.
+        document.addEventListener('transitionend', e => {
+            if (e.propertyName !== 'max-height' || !(e.target instanceof Element) || !e.target.classList.contains('fold-body')) return;
+            const card = e.target.closest('.card');
+            if (card && card.classList.contains('open')) e.target.style.maxHeight = 'none';
+        });
+
+        syncModeButtons();
+        loadNodes();
+        // Warm the services tab without waiting for the first tab switch - and keep the
+        // payload, so the first visit renders instantly from cache with a silent freshen.
+        fetch('/api/services').then(r => r.json()).then(s => {
+            lastServices = shelfSort(s);
+            markUpdated();
+            tallyServices();
+        }).catch(() => {});
+
+        // ─── Dusk-aware ambience: the wallpaper and the candle glow key their warmth to
+        // the viewer's local hour. One cosine over the day - brightest near 13:00, warmest
+        // and dimmest near 01:00 - so dusk arrives as a smooth ramp, never a jump. All of
+        // it lands in CSS custom properties, recomputed once a minute (one style recalc;
+        // no per-frame work). The palette stays pastel at every hour: night is warm-dim
+        // lamplight, never dark mode. Reviewers can freeze the clock with ?hour=19 or
+        // window.__setAmbienceHour(19); pass null to hand it back to the real clock.
+        (function () {
+            const root = document.documentElement.style;
+            let override = null;
+            const q = new URLSearchParams(location.search).get('hour');
+            if (q !== null && q !== '' && isFinite(+q)) override = +q;
+            const lerp = (a, b, t) => a + (b - a) * t;
+            const mixHex = (a, b, t) => '#' + a.map((v, i) => Math.round(lerp(v, b[i], t)).toString(16).padStart(2, '0')).join('');
+            const mixRgba = (a, b, t) => `rgba(${Math.round(lerp(a[0], b[0], t))},${Math.round(lerp(a[1], b[1], t))},${Math.round(lerp(a[2], b[2], t))},${lerp(a[3], b[3], t).toFixed(3)})`;
+            // Day endpoints are the classic wallpaper; night leans warm and a touch dimmer.
+            // The lamp-cast wash (top-left corner) rides the same curve: a faint sandy
+            // breath at noon, a fuller pool of lamplight as the rest of the page dims.
+            const DAY = { bg: [255, 245, 248], top: [255, 225, 236], c1: [179, 229, 252, .30], c2: [200, 230, 201, .28],
+                          core: [251, 233, 184, .55], mid: [249, 229, 181, .30], a: .62,
+                          washc: [249, 229, 181, .15], washm: [249, 229, 181, .06] };
+            const NIGHT = { bg: [247, 232, 221], top: [248, 214, 189], c1: [231, 203, 213, .26], c2: [242, 216, 183, .26],
+                            core: [246, 206, 138, .85], mid: [243, 203, 143, .48], a: .95,
+                            washc: [246, 200, 122, .42], washm: [244, 207, 151, .19] };
+            function applyAmbience() {
+                const now = new Date();
+                const h = override !== null ? ((override % 24) + 24) % 24 : now.getHours() + now.getMinutes() / 60;
+                const t = 0.5 + 0.5 * Math.cos(Math.PI * 2 * (h - 1) / 24); // 0 = full day, 1 = full night
+                root.setProperty('--bg', mixHex(DAY.bg, NIGHT.bg, t));
+                root.setProperty('--amb-top', mixHex(DAY.top, NIGHT.top, t));
+                root.setProperty('--amb-corner1', mixRgba(DAY.c1, NIGHT.c1, t));
+                root.setProperty('--amb-corner2', mixRgba(DAY.c2, NIGHT.c2, t));
+                root.setProperty('--halo-core', mixRgba(DAY.core, NIGHT.core, t));
+                root.setProperty('--halo-mid', mixRgba(DAY.mid, NIGHT.mid, t));
+                root.setProperty('--halo-a', lerp(DAY.a, NIGHT.a, t).toFixed(3));
+                root.setProperty('--wash-core', mixRgba(DAY.washc, NIGHT.washc, t));
+                root.setProperty('--wash-mid', mixRgba(DAY.washm, NIGHT.washm, t));
+            }
+            window.__setAmbienceHour = h => { override = (h === null || h === undefined) ? null : +h; applyAmbience(); };
+            applyAmbience();
+            setInterval(applyAmbience, 60000);
+        })();
+
+        // ─── Pastel polka particle system + lamplight fireflies ─────────────────
+        // One canvas, one visibility-guarded rAF loop, and only calm ambience on it:
+        // the slow upward dot drift, plus a handful of fireflies around the lamp's
+        // halo. (The old click-burst explosions are gone on purpose - press feedback
+        // now belongs to the controls' own state language and the live choreography.)
+        (function () {
+            const canvas = document.createElement('canvas');
+            canvas.style.cssText = 'position:fixed;top:0;left:0;width:100%;height:100%;pointer-events:none;z-index:0;';
+            document.body.prepend(canvas);
+            const ctx = canvas.getContext('2d');
+            var rafId = null;
+
+            // A shade deeper than the wallpaper pastels so the field reads clearly on the
+            // pale pink ground - still airy, never neon.
+            const PASTELS = ['#f8bbd0','#f48fb1','#f8bbd0','#90caf9','#c5e1a5','#ffe082','#ce93d8','#ffcc80','#c5e2cf','#f9e5b5'];
+            const dots = [];
+            // Fireflies stay inside the glow family and inside the halo's reach.
+            const FLY_COLORS = ['#f9e5b5', '#f2cf9f', '#f6d183', '#fdf4dc'];
+            const flies = [];
+            // The halo anchor is measured from the lamp mark (in document space) on
+            // load/resize only - no per-frame layout reads, no scroll listener. The
+            // fixed canvas re-aims each painted frame with a cheap window.scrollY read
+            // (below, inside the guarded rAF loop), so the fireflies stay nestled at
+            // the lamp's halo when the page scrolls.
+            const anchor = { x: 80, y: 70 };
+            var scrollOfs = 0;
+            function refreshAnchor() {
+                const m = document.querySelector('.brand-mark');
+                if (!m) return;
+                const b = m.getBoundingClientRect();
+                anchor.x = b.left + b.width / 2; anchor.y = b.top + b.height / 2 + window.scrollY;
+            }
+
+            function resize() {
+                canvas.width = innerWidth; canvas.height = innerHeight;
+                refreshAnchor();
+                // The lamp-cast card shadows are aimed from the same anchor and go
+                // stale in exactly the same reflows, so re-aim them on this ride.
+                if (window.__castShadows) window.__castShadows();
+                // Setting the canvas size wipes it; when the loop is parked (reduced
+                // motion or a hidden tab) repaint once so the still sprinkle survives.
+                if (rafId === null) paint();
+            }
+            window.addEventListener('resize', resize);
+
+            function rnd(a, b) { return Math.random() * (b - a) + a; }
+            function pick(a) { return a[Math.floor(Math.random() * a.length)]; }
+
+            function Dot() {}
+            Dot.prototype.init = function (x, y) {
+                this.color = pick(PASTELS);
+                this.r = rnd(2, 6);
+                this.x = (x !== undefined) ? x : rnd(0, canvas.width);
+                this.y = (y !== undefined) ? y : rnd(canvas.height * 0.1, canvas.height * 1.1);
+                this.vx = rnd(-0.25, 0.25); this.vy = rnd(-0.4, -0.1);
+                this.alpha = rnd(0.5, 0.9); this.decay = rnd(0.0003, 0.0008);
+                return this;
+            };
+            Dot.prototype.step = function () {
+                this.x += this.vx; this.y += this.vy; this.alpha -= this.decay;
+                if (this.x < -20) this.x = canvas.width + 20;
+                if (this.x > canvas.width + 20) this.x = -20;
+                if (this.alpha <= 0 || this.y < -20) this.init(rnd(0, canvas.width), canvas.height + 10);
+            };
+            Dot.prototype.draw = function () {
+                ctx.save(); ctx.globalAlpha = Math.max(0, this.alpha);
+                ctx.fillStyle = this.color; ctx.beginPath();
+                ctx.arc(this.x, this.y, this.r, 0, Math.PI * 2); ctx.fill(); ctx.restore();
+            };
+
+            // A firefly wanders a slow ellipse around the halo, easing its orbit in and
+            // out while it twinkles - six of them, two arcs each, effectively free next
+            // to the ninety drift dots already on this canvas.
+            function Fly() {
+                this.a = Math.random() * Math.PI * 2;                       // position on the orbit
+                this.d = rnd(26, 128);                                      // orbit radius (px)
+                this.va = rnd(0.0012, 0.0034) * (Math.random() < .5 ? -1 : 1);
+                this.dd = rnd(-0.06, 0.06);                                 // orbit breathing
+                this.tw = Math.random() * Math.PI * 2;                      // twinkle phase
+                this.ts = rnd(0.006, 0.016);
+                this.r = rnd(1.3, 2.4);
+                this.color = pick(FLY_COLORS);
+            }
+            Fly.prototype.step = function () {
+                this.a += this.va; this.tw += this.ts; this.d += this.dd;
+                if (this.d < 22 || this.d > 132) this.dd = -this.dd;
+            };
+            Fly.prototype.draw = function () {
+                const x = anchor.x + Math.cos(this.a) * this.d * 1.2;
+                const y = anchor.y - scrollOfs + Math.sin(this.a) * this.d * 0.85;
+                const glow = 0.5 + 0.42 * Math.sin(this.tw);
+                ctx.save();
+                ctx.fillStyle = this.color;
+                ctx.globalAlpha = glow * 0.28;                              // soft outer halo
+                ctx.beginPath(); ctx.arc(x, y, this.r * 2.7, 0, Math.PI * 2); ctx.fill();
+                ctx.globalAlpha = glow;                                     // bright core
+                ctx.beginPath(); ctx.arc(x, y, this.r, 0, Math.PI * 2); ctx.fill();
+                ctx.restore();
+            };
+
+            resize();
+            for (var i = 0; i < 90; i++) dots.push(new Dot().init());
+            for (var j = 0; j < 6; j++) flies.push(new Fly());
+
+            function paint() {
+                // One scrollY read per painted frame keeps the doc-space anchor honest
+                // on the fixed canvas (also covers the parked reduced-motion repaints).
+                scrollOfs = window.scrollY;
+                ctx.clearRect(0, 0, canvas.width, canvas.height);
+                for (var i = 0; i < dots.length; i++) dots[i].draw();
+                for (var j = 0; j < flies.length; j++) flies[j].draw();
+            }
+            function frame() {
+                for (var i = 0; i < dots.length; i++) dots[i].step();
+                for (var j = 0; j < flies.length; j++) flies[j].step();
+                paint();
+            }
+
+            function loop() { frame(); rafId = requestAnimationFrame(loop); }
+            function start() { if (rafId) return; loop(); }
+            function stop() { if (rafId) { cancelAnimationFrame(rafId); rafId = null; } }
+
+            // While the rAF loop is parked (reduced motion), the lamp still scrolls with
+            // the document - so repaint the still sprinkle once per scroll, throttled
+            // through a one-shot rAF. Zero animation: nothing steps, the same frozen
+            // fireflies simply stay seated at the halo instead of detaching from it.
+            var scrollRepaint = null;
+            window.addEventListener('scroll', function () {
+                if (rafId !== null || scrollRepaint !== null) return; // the live loop already tracks scroll
+                scrollRepaint = requestAnimationFrame(function () {
+                    scrollRepaint = null;
+                    if (rafId === null) paint();
+                });
+            }, { passive: true });
+
+            // Respect a reduced-motion preference: paint one still sprinkle (fireflies
+            // stilled too) and hold there - no drifting loop. And spend nothing on a
+            // hidden tab - the rAF loop only runs while the page is actually being
+            // rendered. Re-evaluate on either signal changing.
+            var reduce = window.matchMedia('(prefers-reduced-motion: reduce)');
+            function apply() {
+                if (reduce.matches) { stop(); paint(); }
+                else if (document.hidden) { stop(); }
+                else { start(); }
+            }
+            apply();
+            reduce.addEventListener ? reduce.addEventListener('change', apply) : reduce.addListener(apply);
+            document.addEventListener('visibilitychange', apply);
+        })();
+        // ────────────────────────────────────────────────────────────────────────
+    </script>
+</body>
+</html>
