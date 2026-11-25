@@ -1,5 +1,11 @@
 # Allumeur
 
+[![Release](https://github.com/Mars-Wave/allumeur/actions/workflows/release.yml/badge.svg)](https://github.com/Mars-Wave/allumeur/actions/workflows/release.yml)
+[![Latest release](https://img.shields.io/github/v/release/Mars-Wave/allumeur)](https://github.com/Mars-Wave/allumeur/releases/latest)
+![Platform: Linux](https://img.shields.io/badge/platform-Linux-FCC624?logo=linux&logoColor=black)
+[![License: PolyForm Noncommercial](https://img.shields.io/badge/license-PolyForm%20Noncommercial-blue)](LICENSE.md)
+[![Sponsor](https://img.shields.io/badge/sponsor-%E2%9D%A4-db61a2?logo=githubsponsors)](https://github.com/sponsors/Mars-Wave)
+
 Ultra-light homelab control suite: wake/sleep machines, SSH key management, on-demand tunnels, and a tiny web UI on :443.
 
 ## Install
